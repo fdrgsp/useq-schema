@@ -29,6 +29,7 @@ class MDASequence(UseqModel):
     time_plan: AnyTimePlan = Field(default_factory=NoT)
     z_plan: AnyZPlan = Field(default_factory=NoZ)
     uid: UUID = Field(default_factory=uuid4)
+    extras: str = ''
 
     @validator("z_plan", pre=True)
     def validate_zplan(cls, v):  # type: ignore
