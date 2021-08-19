@@ -30,6 +30,10 @@ class MDASequence(UseqModel):
     z_plan: AnyZPlan = Field(default_factory=NoZ)
     uid: UUID = Field(default_factory=uuid4)
 
+########################################################################################
+    action: list
+########################################################################################
+
     def __hash__(self):
         return hash(self.uid)
 
@@ -205,6 +209,11 @@ class MDASequence(UseqModel):
             _channel = (
                 {"config": channel.config, "group": channel.group} if channel else None
             )
+
+##############################################################################
+            _action = []
+############################################################################## 
+           
             yield MDAEvent(
                 index=index,
                 min_start_time=time,
@@ -213,6 +222,9 @@ class MDASequence(UseqModel):
                 z_pos=z_pos,
                 exposure=getattr(channel, "exposure", None),
                 channel=_channel,
+##############################################################################   
+                action = _action,
+##############################################################################   
                 sequence=self,
             )
 

@@ -35,7 +35,9 @@ class MDAEvent(UseqModel):
     z_pos: Optional[float] = None
     properties: Optional[Sequence[PropertyTuple]] = None
     sequence: Optional[MDASequence] = Field(default=None, repr=False)
+########################################################################################
     action: str = 'snap'
+########################################################################################
     # keep shutter open between channels/steps
 
     def __repr_args__(self) -> ReprArgs:
