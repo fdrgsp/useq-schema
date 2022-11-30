@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Generator, Optional
+from typing import Any, Callable, Generator, Optional, Tuple
 
 import numpy as np
 from pydantic import Field
@@ -24,6 +24,8 @@ class Position(FrozenModel):
         Y position in microns.
     z : float | None
         Z position in microns.
+    offset: Tuple[str, float] | (None, None)
+        Optional hardwere autofocus device name and value.
     name : str | None
         Optional name for the position.
     z_plan : ZTopBottom | ZRangeAround | ZAboveBelow | ZRelativePositions | \
@@ -35,6 +37,7 @@ class Position(FrozenModel):
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None
+    offset: Optional[Tuple[str, float]] = (None, None)
     name: Optional[str] = None
     z_plan: AnyZPlan = Field(default_factory=NoZ)
 
