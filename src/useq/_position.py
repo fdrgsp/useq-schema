@@ -24,7 +24,7 @@ class Position(FrozenModel):
         Y position in microns.
     z : float | None
         Z position in microns.
-    offset: Tuple[str, float] | (None, None)
+    hardware_autofocus_offset: Tuple[str, float] | (None, None)
         Optional hardwere autofocus device name and value.
     name : str | None
         Optional name for the position.
@@ -37,7 +37,7 @@ class Position(FrozenModel):
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None
-    offset: Optional[Tuple[str, float]] = (None, None)
+    hardware_autofocus_offset: Optional[Tuple[str, float]] = (None, None)
     name: Optional[str] = None
     z_plan: AnyZPlan = Field(default_factory=NoZ)
 
