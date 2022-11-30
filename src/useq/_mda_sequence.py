@@ -315,27 +315,22 @@ class MDASequence(UseqModel):
             _channel = (
                 {"config": channel.config, "group": channel.group} if channel else None
             )
-            print(
-                getattr(position, "x", None),
-                getattr(position, "y", None),
-                z_pos,
-                getattr(position, "hardware_autofocus_offset", None),
+
+            yield MDAEvent(
+                index=index,
+                min_start_time=time,
+                pos_name=getattr(position, "name", None),
+                x_pos=getattr(position, "x", None),
+                y_pos=getattr(position, "y", None),
+                z_pos=z_pos,
+                hardware_autofocus_offset=getattr(
+                    position, "hardware_autofocus_offset", None
+                ),
+                exposure=getattr(channel, "exposure", None),
+                channel=_channel,
+                sequence=self,
+                global_index=global_index,
             )
-            # yield MDAEvent(
-            #     index=index,
-            #     min_start_time=time,
-            #     pos_name=getattr(position, "name", None),
-            #     x_pos=getattr(position, "x", None),
-            #     y_pos=getattr(position, "y", None),
-            #     z_pos=z_pos,
-            #     hardware_autofocus_offset=getattr(
-            #         position, "hardware_autofocus_offset", None
-            #     ),
-            #     exposure=getattr(channel, "exposure", None),
-            #     channel=_channel,
-            #     sequence=self,
-            #     global_index=global_index,
-            # )
 
     def _combine_z(
         self,
