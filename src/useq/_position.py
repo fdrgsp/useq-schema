@@ -25,7 +25,7 @@ class Position(FrozenModel):
     z : float | None
         Z position in microns.
     hardware_autofocus_offset: float | None
-        Optional hardwere autofocus device value.
+        Optional hardware autofocus device value.
     name : str | None
         Optional name for the position.
     z_plan : ZTopBottom | ZRangeAround | ZAboveBelow | ZRelativePositions | \

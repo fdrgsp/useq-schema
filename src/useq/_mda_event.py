@@ -92,7 +92,7 @@ class MDAEvent(UseqModel):
         Z position in microns. If not provided, implies use current position. By
         default, `None`.
     hardware_autofocus_offset: float | None
-        Optional hardwere autofocus device value.
+        Optional hardware autofocus device value.
     properties : Sequence[PropertyTuple] | None
         List of [`useq.PropertyTuple`][] to set before starting this event. Where each
         tuple is a 3-tuple of `(device_name, property_name, property_value)`.  This is
