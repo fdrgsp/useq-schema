@@ -323,7 +323,7 @@ class MDASequence(UseqModel):
                 y_pos=getattr(position, "y", None),
                 z_pos=z_pos,
                 hardware_autofocus_offset=getattr(
-                    position, "hardware_autofocus_offset", (None, None)
+                    position, "hardware_autofocus_offset", None
                 ),
                 exposure=getattr(channel, "exposure", None),
                 channel=_channel,
