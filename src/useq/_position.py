@@ -37,7 +37,7 @@ class Position(FrozenModel):
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None
-    hardware_autofocus_offset: Optional[float] = None
+    hardware_autofocus_offset: Optional[Tuple[str, float]] = None
     name: Optional[str] = None
     z_plan: AnyZPlan = Field(default_factory=NoZ)
 
