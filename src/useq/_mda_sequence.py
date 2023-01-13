@@ -24,6 +24,7 @@ from ._mda_event import MDAEvent
 from ._position import Position
 from ._time import AnyTimePlan, NoT
 from ._z import AnyZPlan, NoZ
+from ._tile import AnyTilePlan
 
 if TYPE_CHECKING:
     from ._time import NoT
@@ -104,7 +105,8 @@ class MDASequence(UseqModel):
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
     axis_order: str = "".join(INDICES)
-    stage_positions: Tuple[Position, ...] = Field(default_factory=tuple)
+    # stage_positions: Tuple[Position, ...] | Tuple[list[Position]]= Field(default_factory=tuple)
+    stage_positions: Tuple[Position, ...] | Tuple[AnyTilePlan] = Field(default_factory=tuple)
     channels: Tuple[Channel, ...] = Field(default_factory=tuple)
     time_plan: AnyTimePlan = Field(default_factory=NoT)
     z_plan: AnyZPlan = Field(default_factory=NoZ)
