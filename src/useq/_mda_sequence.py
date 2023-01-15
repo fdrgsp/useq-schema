@@ -22,7 +22,7 @@ from ._base_model import UseqModel
 from ._channel import Channel
 from ._mda_event import MDAEvent
 from ._position import Position
-from ._tile import AnyTilePlan, NoTile
+from ._tile import AnyTilePlan
 from ._time import AnyTimePlan, NoT
 from ._z import AnyZPlan, NoZ
 
