@@ -92,7 +92,7 @@ class TileRelative(TilePlan):
         return tile_pos_list
 
 
-AnyTilePlan = Union[TileFromCorners, TileRelative, NoTile]
+AnyTilePlan = Union[TileFromCorners, TileRelative]
 
 
 
