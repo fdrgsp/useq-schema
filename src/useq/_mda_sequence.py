@@ -105,8 +105,8 @@ class MDASequence(UseqModel):
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
     axis_order: str = "".join(INDICES)
-    # stage_positions: Tuple[Position, ...] | Tuple[list[Position]]= Field(default_factory=tuple)
-    stage_positions: Tuple[Position, ...] | Tuple[AnyTilePlan] = Field(default_factory=tuple)
+    stage_positions: Tuple[Position, ...] | Tuple[list[Position]]= Field(default_factory=tuple)
+    # stage_positions: Tuple[Position, ...] | Tuple[AnyTilePlan] = Field(default_factory=tuple)
     channels: Tuple[Channel, ...] = Field(default_factory=tuple)
     time_plan: AnyTimePlan = Field(default_factory=NoT)
     z_plan: AnyZPlan = Field(default_factory=NoZ)
@@ -119,6 +119,7 @@ class MDASequence(UseqModel):
         """A unique identifier for this sequence."""
         return self._uid
 
+    # TODO: to fix with Tuple[AnyTilePlan]
     @no_type_check
     def replace(
         self,

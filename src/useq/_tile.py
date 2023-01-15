@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from typing import Iterator, List, Sequence, Union, Literal
+from typing import Iterator, Literal, Sequence, Union
 
-import numpy as np
+from ._base_model import FrozenModel
+from ._position import Position
 
-# from ._base_model import FrozenModel
-# from ._position import Position
-from useq._base_model import FrozenModel
-from useq._position import Position
+# from useq._base_model import FrozenModel
+# from useq._position import Position
 
 
 class TilePlan(FrozenModel):
@@ -23,6 +22,8 @@ class TilePlan(FrozenModel):
 
     def __len__(self) -> int:
         return len(self.tiles())
+
+    def 
 
 
 class TileRelative(TilePlan):
@@ -57,13 +58,17 @@ class TileRelative(TilePlan):
             increment_y = cam_height * self.pixel_size
 
         tile_pos_list: list[Position] = []
+        pos_count = 0
         for r in range(self.rows):
             if r % 2:  # for odd rows
                 col = self.cols - 1
                 for c in range(self.cols):
                     if c == 0:
                         y_pos -= increment_y
-                    tile_pos_list.append(Position(x=x_pos, y=y_pos, z=z_pos))
+                    tile_pos_list.append(Position(
+                        name=f"Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
+                    ))
+                    pos_count += 1
                     if col > 0:
                         col -= 1
                         x_pos -= increment_x
@@ -71,7 +76,10 @@ class TileRelative(TilePlan):
                 for c in range(self.cols):
                     if r > 0 and c == 0:
                         y_pos -= increment_y
-                    tile_pos_list.append(Position(x=x_pos, y=y_pos, z=z_pos))
+                    tile_pos_list.append(Position(
+                        name=f"Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
+                    ))
+                    pos_count += 1
                     if c < self.cols - 1:
                         x_pos += increment_x
 

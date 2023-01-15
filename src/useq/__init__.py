@@ -2,6 +2,7 @@ from ._channel import Channel
 from ._mda_event import MDAEvent, PropertyTuple
 from ._mda_sequence import MDASequence
 from ._position import Position
+from ._tile import TileFromCorners, TileRelative
 from ._time import (
     MultiPhaseTimePlan,
     NoT,
@@ -28,6 +29,8 @@ __all__ = [
     "Position",
     "PropertyTuple",
     "TDurationLoops",
+    "TileRelative",
+    "TileFromCorners",
     "TIntervalDuration",
     "TIntervalLoops",
     "ZAboveBelow",
