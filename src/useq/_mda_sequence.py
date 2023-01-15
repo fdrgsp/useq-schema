@@ -157,7 +157,7 @@ class MDASequence(UseqModel):
         for i in v:
             if isinstance(i, list) and isinstance(i[0], Position):
                 new_v.extend(iter(i))
-            if isinstance(i, AnyTilePlan):
+            elif isinstance(i, AnyTilePlan):
                 new_v.extend([p.dict() for p in i.tiles()])
             elif isinstance(i, np.ndarray):
                 if i.ndim == 1:
