@@ -166,7 +166,7 @@ class MDASequence(UseqModel):
                     new_v.extend(iter(i))
             else:
                 new_v.append(i)
-        return new_v
+        return new_v or v
 
     @validator("axis_order", pre=True)
     def validate_axis_order(cls, v: Any) -> str:
