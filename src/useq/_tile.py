@@ -103,12 +103,16 @@ class TileRelative(TilePlan):
             y_pos += self.pixel_size * (move_y + cam_height)
 
         # calculate position increments depending on pixle size
-        if self.overlap > 0:
-            increment_x = overlap_x * self.pixel_size
-            increment_y = overlap_y * self.pixel_size
-        else:
-            increment_x = cam_width * self.pixel_size
-            increment_y = cam_height * self.pixel_size
+        increment_x = (
+            overlap_x * self.pixel_size 
+            if self.overlap_x > 0
+            else cam_width * self.pixel_size
+        )
+        increment_y = (
+            overlap_y * self.pixel_size 
+            if self.overlap_y > 0
+            else cam_height * self.pixel_size
+        )
 
         tile_pos_list: list[Position] = []
         pos_count = 0
