@@ -23,7 +23,13 @@ class TilePlan(FrozenModel):
     def __len__(self) -> int:
         return len(self.tiles())
 
-    def 
+
+class TileFromCorners(TilePlan):
+    top_left: tuple[float, float]
+    top_right: tuple[float, float]
+    overlap: float
+    pixel_size: float
+    camera_roi: tuple[int, int]
 
 
 class TileRelative(TilePlan):
@@ -85,16 +91,8 @@ class TileRelative(TilePlan):
 
         return tile_pos_list
 
-        
-class TileFromCorners(TilePlan):
-    top_left: tuple[float, float]
-    top_right: tuple[float, float]
-    overlap: float
-    pixel_size: float
-    camera_roi: tuple[int, int]
 
-
-AnyTilePlan = Union[TileRelative, TileFromCorners]
+AnyTilePlan = Union[TileFromCorners, TileRelative, NoTile]
 
 
 
