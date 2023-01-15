@@ -5,12 +5,10 @@ from typing import Iterator, Literal, Sequence, Union
 from ._base_model import FrozenModel
 from ._position import Position
 
-# from useq._base_model import FrozenModel
-# from useq._position import Position
-
 
 class TilePlan(FrozenModel):
-    overlap: float  # percentage
+    overlap_x: float
+    overlap_y: float
     pixel_size: float
     camera_roi: tuple[int, int]
 
@@ -25,17 +23,66 @@ class TilePlan(FrozenModel):
 
 
 class TileFromCorners(TilePlan):
+    """Define a list of positions for a tile acquisition.
+
+    ...depending on a grid determined by a top_left and a
+    borrom_right positions.
+
+    Attributes
+    ----------
+    top_left : tuple[float, float]
+        Grid top_left position.
+    bottom_right : tuple[float, float]
+        Grid bottom_right position.
+    overlap_x: float
+        Percentage of overlap between tiles along the x axis.
+    overlap_y: float
+        Percentage of overlap between tiles along the y axis.
+    pixel_size : float
+        Pixel size of the imaging system.
+    camera_roi : tuple[int, int]
+        Camera ROI dimension.
+    """
+
     top_left: tuple[float, float]
-    top_right: tuple[float, float]
-    overlap: float
+    bottom_right: tuple[float, float]
+    overlap_x: float
+    overlap_y: float
     pixel_size: float
     camera_roi: tuple[int, int]
 
 
 class TileRelative(TilePlan):
+    """Define a list of positions for a tile acquisition.
+
+   ...relative to a specified position (`start_coords`).
+
+    Attributes
+    ----------
+    rows: int
+        Number of rows.
+    cols: int
+        Number of columns.
+    overlap_x: float
+        Percentage of overlap between tiles along the x axis.
+    overlap_y: float
+        Percentage of overlap between tiles along the y axis.
+    pixel_size : float
+        Pixel size of the imaging system.
+    camera_roi : tuple[int, int]
+        Camera ROI dimension.
+    start_coords: tuple[float, float, float | None]
+        Starting position coordinates used to generate the grid.
+    relative_to_coords: Literal["center", "top_left"]:
+        Define if the position list will be generated using the
+        `start_coords` as a central grid position (`center`) or
+        as the first top_left grid position (`top_left`).
+    """
+
     rows: int
     cols: int
-    overlap: float
+    overlap_x: float
+    overlap_y: float
     pixel_size: float
     camera_roi: tuple[int, int]
     start_coords: tuple[float, float, float | None]
@@ -45,8 +92,8 @@ class TileRelative(TilePlan):
 
         x_pos, y_pos, z_pos = self.start_coords
         cam_width, cam_height = self.camera_roi
-        overlap_x = cam_width - (cam_width * self.overlap) / 100
-        overlap_y = cam_height - (cam_height * self.overlap) / 100
+        overlap_x = cam_width - (cam_width * self.overlap_x) / 100
+        overlap_y = cam_height - (cam_height * self.overlap_y) / 100
 
         if self.relative_to_coords == "center":
             # move to top left corner

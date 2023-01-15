@@ -6,6 +6,7 @@ from typing import (
     Any,
     Dict,
     Iterator,
+    List,
     Optional,
     Sequence,
     Tuple,
@@ -55,7 +56,7 @@ class MDASequence(UseqModel):
     axis_order : str
         The order of the axes in the sequence. Must be a permutation of `"tpcz"`. The
         default is `"tpcz"`.
-    stage_positions : tuple[Position, ...]
+    stage_positions : tuple[Position, | List[Position] | AnyTilePlan, ...]
         The stage positions to visit. (each with `x`, `y`, `z`, `name`, and `z_plan`,
         all of which are optional).
     channels : tuple[Channel, ...]
@@ -105,7 +106,7 @@ class MDASequence(UseqModel):
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
     axis_order: str = "".join(INDICES)
-    stage_positions: Tuple[Position, ...] | AnyTilePlan = Field(default_factory=tuple)
+    stage_positions: Tuple[Position | List[Position] | AnyTilePlan, ...] = Field(default_factory=tuple)
     channels: Tuple[Channel, ...] = Field(default_factory=tuple)
     time_plan: AnyTimePlan = Field(default_factory=NoT)
     z_plan: AnyZPlan = Field(default_factory=NoZ)
@@ -124,7 +125,7 @@ class MDASequence(UseqModel):
         self,
         metadata: Dict[str, Any] = Undefined,
         axis_order: str = Undefined,
-        stage_positions: Tuple[Position, ...] = Undefined,
+        stage_positions: Tuple[Position | List[Position] | AnyTilePlan, ...] = Undefined,
         channels: Tuple[Channel, ...] = Undefined,
         time_plan: AnyTimePlan = Undefined,
         z_plan: AnyZPlan = Undefined,
@@ -152,12 +153,20 @@ class MDASequence(UseqModel):
 
     @validator("stage_positions", pre=True)
     def validate_positions(cls, v: Any) -> Any:
-        if isinstance(v, np.ndarray):
-            if v.ndim == 1:
-                return [v]
-            elif v.ndim == 2:
-                return list(v)
-        return v
+        new_v = []
+        for i in v:
+            if isinstance(i, list) and isinstance(i[0], Position):
+                new_v.extend(iter(i))
+            if isinstance(i, AnyTilePlan):
+                new_v.extend([p.dict() for p in i.tiles()])
+            elif isinstance(i, np.ndarray):
+                if i.ndim == 1:
+                    new_v.append(i)
+                elif i.ndim == 2:
+                    new_v.extend(iter(i))
+            else:
+                new_v.append(i)
+        return new_v
 
     @validator("axis_order", pre=True)
     def validate_axis_order(cls, v: Any) -> str:
