@@ -88,7 +88,7 @@ class TileRelative(TilePlan):
     start_coords: tuple[float, float, float | None]
     relative_to_coords: Literal["center", "top_left"]
 
-    def tiles(self) -> Sequence[Position]:
+    def tiles(self, name_prefix: str = "") -> Sequence[Position]:
 
         x_pos, y_pos, z_pos = self.start_coords
         cam_width, cam_height = self.camera_roi
@@ -123,7 +123,7 @@ class TileRelative(TilePlan):
                     if c == 0:
                         y_pos -= increment_y
                     tile_pos_list.append(Position(
-                        name=f"Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
+                        name=f"{name_prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
                     ))
                     pos_count += 1
                     if col > 0:
@@ -134,7 +134,7 @@ class TileRelative(TilePlan):
                     if r > 0 and c == 0:
                         y_pos -= increment_y
                     tile_pos_list.append(Position(
-                        name=f"Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
+                        name=f"{name_prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
                     ))
                     pos_count += 1
                     if c < self.cols - 1:
