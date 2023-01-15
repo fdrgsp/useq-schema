@@ -89,7 +89,14 @@ class TileRelative(TilePlan):
     relative_to_coords: Literal["center", "top_left"]
 
     def tiles(self, name_prefix: str = "") -> Sequence[Position]:
+        """Generate the position list.
 
+        Parameters
+        ----------
+        name_prefix : str
+            Optional string that can be added in front of each `Posnnn`
+            default position name. (e.g. 'Pos000' -> 'Tile000_Pos000').
+        """
         x_pos, y_pos, z_pos = self.start_coords
         cam_width, cam_height = self.camera_roi
         overlap_x = cam_width - (cam_width * self.overlap_x) / 100
