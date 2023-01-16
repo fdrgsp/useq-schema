@@ -56,7 +56,7 @@ class MDASequence(UseqModel):
     axis_order : str
         The order of the axes in the sequence. Must be a permutation of `"tpcz"`. The
         default is `"tpcz"`.
-    stage_positions : tuple[Position, | List[Position] | AnyTilePlan, ...]
+    stage_positions : tuple[Position, | AnyTilePlan, ...]
         The stage positions to visit. (each with `x`, `y`, `z`, `name`, and `z_plan`,
         all of which are optional).
     channels : tuple[Channel, ...]
@@ -106,7 +106,7 @@ class MDASequence(UseqModel):
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
     axis_order: str = "".join(INDICES)
-    stage_positions: Tuple[Position | List[Position] | AnyTilePlan, ...] = Field(default_factory=tuple)
+    stage_positions: Tuple[Position | AnyTilePlan, ...] = Field(default_factory=tuple)
     channels: Tuple[Channel, ...] = Field(default_factory=tuple)
     time_plan: AnyTimePlan = Field(default_factory=NoT)
     z_plan: AnyZPlan = Field(default_factory=NoZ)
@@ -125,7 +125,7 @@ class MDASequence(UseqModel):
         self,
         metadata: Dict[str, Any] = Undefined,
         axis_order: str = Undefined,
-        stage_positions: Tuple[Position | List[Position] | AnyTilePlan, ...] = Undefined,
+        stage_positions: Tuple[Position | AnyTilePlan, ...] = Undefined,
         channels: Tuple[Channel, ...] = Undefined,
         time_plan: AnyTimePlan = Undefined,
         z_plan: AnyZPlan = Undefined,
