@@ -73,7 +73,7 @@ class TileRelative(TilePlan):
         Camera ROI dimension.
     start_coords: tuple[float, float, float | None]
         Starting x, y, z position coordinates used to generate the grid.
-    relative_to_coords: Literal["center", "top_left"]:
+    relative_to: Literal["center", "top_left"]:
         Define if the position list will be generated using the
         `start_coords` as a central grid position (`center`) or
         as the first top_left grid position (`top_left`).
