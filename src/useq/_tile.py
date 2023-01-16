@@ -2,17 +2,16 @@ from __future__ import annotations
 
 from typing import Iterator, Literal, Sequence, Union
 
-from ._base_model import FrozenModel
-from ._position import Position
+from useq._base_model import FrozenModel
+from useq._position import Position
 
 
 class TilePlan(FrozenModel):
+    tile_name: str  # maybe try a kind of setter method??? at the moment is immutable
     overlap_x: float
     overlap_y: float
     pixel_size: float
     camera_roi: tuple[int, int]
-
-    # TODO: add tile name and a kind of setter method
 
     def __iter__(self) -> Iterator[Position]:
         yield from self.tiles()
@@ -32,6 +31,8 @@ class TileFromCorners(TilePlan):
 
     Attributes
     ----------
+    tile_name : str
+        Name of the tile.
     top_left : tuple[float, float]
         Grid top_left position.
     bottom_right : tuple[float, float]
@@ -46,6 +47,7 @@ class TileFromCorners(TilePlan):
         Camera ROI dimension.
     """
 
+    tile_name: str
     top_left: tuple[float, float]
     bottom_right: tuple[float, float]
     overlap_x: float
@@ -61,6 +63,8 @@ class TileRelative(TilePlan):
 
     Attributes
     ----------
+    tile_name : str
+        Name of the tile.
     rows: int
         Number of rows.
     cols: int
@@ -81,6 +85,7 @@ class TileRelative(TilePlan):
         as the first top_left grid position (`top_left`).
     """
 
+    tile_name: str = ""
     rows: int
     cols: int
     overlap_x: float
@@ -90,15 +95,9 @@ class TileRelative(TilePlan):
     start_coords: tuple[float, float, float | None]
     relative_to: Literal["center", "top_left"]
 
-    def tiles(self, name_prefix: str = "") -> Sequence[Position]:
-        """Generate the position list.
-
-        Parameters
-        ----------
-        name_prefix : str
-            Optional string that can be added in front of each `Posnnn`
-            default position name. (e.g. 'Pos000' -> 'Tile000_Pos000').
-        """
+    # def tiles(self, name_prefix: str = "") -> Sequence[Position]:
+    def tiles(self) -> Sequence[Position]:
+        """Generate the position list."""
         x_pos, y_pos, z_pos = self.start_coords
         cam_width, cam_height = self.camera_roi
         overlap_x = cam_width - (cam_width * self.overlap_x) / 100
@@ -132,7 +131,7 @@ class TileRelative(TilePlan):
                     if c == 0:
                         y_pos -= increment_y
                     tile_pos_list.append(Position(
-                        name=f"{name_prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
+                        name=f"{self.tile_name}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
                     ))
                     pos_count += 1
                     if col > 0:
@@ -143,7 +142,7 @@ class TileRelative(TilePlan):
                     if r > 0 and c == 0:
                         y_pos -= increment_y
                     tile_pos_list.append(Position(
-                        name=f"{name_prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
+                        name=f"{self.tile_name}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
                     ))
                     pos_count += 1
                     if c < self.cols - 1:
@@ -158,7 +157,22 @@ AnyTilePlan = Union[TileFromCorners, TileRelative]
 
 
 
-
+t = TileRelative(
+    tile_name = "",
+    overlap_x = 0,
+    overlap_y = 0,
+    pixel_size = 1.0,
+    camera_roi = (100, 100),
+    rows = 2,
+    cols = 2,
+    start_coords = (0.0, 0.0, 0.0),
+    relative_to = 'center',
+)
+t_dict = t.dict()
+print(t_dict)
+t_dict['tile_name'] = 'NAME_'
+print(t_dict)
+print(TileRelative(**t_dict).tiles())
 
 
 
