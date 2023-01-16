@@ -23,7 +23,7 @@ from ._base_model import UseqModel
 from ._channel import Channel
 from ._mda_event import MDAEvent
 from ._position import Position
-from ._tile import AnyTilePlan
+from ._tile import AnyTilePlan, TileRelative
 from ._time import AnyTimePlan, NoT
 from ._z import AnyZPlan, NoZ
 
@@ -155,8 +155,9 @@ class MDASequence(UseqModel):
     def validate_positions(cls, v: Any) -> Any:
         new_v = []
         for i in v:
-            if isinstance(i, list) and isinstance(i[0], Position):
-                new_v.extend(iter(i))
+            if isinstance(i, dict):
+                if "relative_to" in i:
+                    new_v.extend([p.dict() for p in TileRelative(**i).tiles()])
             elif isinstance(i, AnyTilePlan):
                 new_v.extend([p.dict() for p in i.tiles()])
             elif isinstance(i, np.ndarray):
