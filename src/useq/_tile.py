@@ -86,7 +86,7 @@ class TileRelative(TilePlan):
     pixel_size: float
     camera_roi: tuple[int, int]
     start_coords: tuple[float, float, float | None]
-    relative_to_coords: Literal["center", "top_left"]
+    relative_to: Literal["center", "top_left"]
 
     def tiles(self, name_prefix: str = "") -> Sequence[Position]:
         """Generate the position list.
@@ -102,7 +102,7 @@ class TileRelative(TilePlan):
         overlap_x = cam_width - (cam_width * self.overlap_x) / 100
         overlap_y = cam_height - (cam_height * self.overlap_y) / 100
 
-        if self.relative_to_coords == "center":
+        if self.relative_to == "center":
             # move to top left corner
             move_x = (cam_width / 2) * (self.cols - 1) - overlap_x
             move_y = (cam_height / 2) * (self.rows - 1) - overlap_y
