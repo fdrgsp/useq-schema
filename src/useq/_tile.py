@@ -12,6 +12,8 @@ class TilePlan(FrozenModel):
     pixel_size: float
     camera_roi: tuple[int, int]
 
+    # TODO: add tile name and a kind of setter method
+
     def __iter__(self) -> Iterator[Position]:
         yield from self.tiles()
 
