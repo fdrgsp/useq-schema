@@ -152,30 +152,3 @@ class TileRelative(TilePlan):
 
 
 AnyTilePlan = Union[TileFromCorners, TileRelative]
-
-
-
-
-
-t = TileRelative(
-    tile_name = "",
-    overlap_x = 0,
-    overlap_y = 0,
-    pixel_size = 1.0,
-    camera_roi = (100, 100),
-    rows = 2,
-    cols = 2,
-    start_coords = (0.0, 0.0, 0.0),
-    relative_to = 'center',
-)
-t_dict = t.dict()
-print(t_dict)
-t_dict['tile_name'] = 'NAME_'
-print(t_dict)
-print(TileRelative(**t_dict).tiles())
-
-
-
-
-
-
