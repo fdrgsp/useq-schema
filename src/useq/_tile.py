@@ -139,6 +139,7 @@ class TileRelative(TilePlan):
                 tile_pos_list.append(Position(
                     name=f"{prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
                 ))
+                pos_count += 1
                 if c == self.cols - 1:
                     y_pos -= increment_y
 
