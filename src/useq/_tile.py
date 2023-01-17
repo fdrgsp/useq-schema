@@ -81,6 +81,8 @@ class TileRelative(TilePlan):
         Camera ROI dimension.
     start_coords: tuple[float, float, float | None]
         Starting x, y, z position coordinates used to generate the grid.
+    snake_order : bool
+        Organize the positions for a `snake-type` acquisition. By default, `True`.
     relative_to: Literal["center", "top_left"]:
         Define if the position list will be generated using the
         `start_coords` as a central grid position (`center`) or
@@ -95,13 +97,13 @@ class TileRelative(TilePlan):
     pixel_size: float
     camera_roi: tuple[int, int]
     start_coords: tuple[float, float, float | None]
+    snake_order: bool = True
     relative_to: Literal["center", "top_left"]
 
-    # def tiles(self, name_prefix: str = "") -> Sequence[Position]:
     def tiles(self) -> Sequence[Position]:
         """Generate the position list."""
         prefix = f"{self.tile_name}_" if self.tile_name else ""
-    
+
         x_pos, y_pos, z_pos = self.start_coords
         cam_width, cam_height = self.camera_roi
         overlap_x = cam_width - (cam_width * self.overlap_x) / 100
@@ -128,29 +130,31 @@ class TileRelative(TilePlan):
 
         tile_pos_list: list[Position] = []
         pos_count = 0
-        for r in range(self.rows):
-            if r % 2:  # for odd rows
-                col = self.cols - 1
-                for c in range(self.cols):
-                    if c == 0:
-                        y_pos -= increment_y
-                    tile_pos_list.append(Position(
-                        name=f"{prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
-                    ))
-                    pos_count += 1
-                    if col > 0:
-                        col -= 1
-                        x_pos -= increment_x
-            else:  # for even rows
-                for c in range(self.cols):
-                    if r > 0 and c == 0:
-                        y_pos -= increment_y
-                    tile_pos_list.append(Position(
-                        name=f"{prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
-                    ))
-                    pos_count += 1
-                    if c < self.cols - 1:
-                        x_pos += increment_x
+        starting_x = x_pos
+        for _ in range(self.rows):
+            x_pos = starting_x
+            for c in range(self.cols):
+                if c != 0:
+                    x_pos += increment_x
+                tile_pos_list.append(Position(
+                    name=f"{prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
+                ))
+                if c == self.cols - 1:
+                    y_pos -= increment_y
+
+        if self.snake_order:
+            snake_ordered_list = []
+            insert = False
+            for idx, pos in enumerate(tile_pos_list):
+                if idx != 0 and idx % self.cols == 0:
+                    insert = not insert
+                    index = idx
+                if insert:
+                    snake_ordered_list.insert(index, pos)
+                else:
+                    snake_ordered_list.append(pos)
+            
+            return snake_ordered_list
 
         return tile_pos_list
 
