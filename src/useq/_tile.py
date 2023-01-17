@@ -109,6 +109,7 @@ class TileFromCorners(TilePlan):
     camera_roi: tuple[int, int]
     snake_order: bool = True
 
+    # TODO: add also top_right and bottom_left
     def tiles(self) -> Sequence[Position]:
         prefix = f"{self.tile_name}_" if self.tile_name else ""
 
