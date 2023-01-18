@@ -12,6 +12,7 @@ from typing import (
     Tuple,
     Union,
     no_type_check,
+    cast
 )
 from uuid import UUID, uuid4
 from warnings import warn
@@ -23,7 +24,7 @@ from ._base_model import UseqModel
 from ._channel import Channel
 from ._mda_event import MDAEvent
 from ._position import Position
-from ._tile import AnyTilePlan, TileRelative
+from ._tile import AnyTilePlan, TileRelative, TileFromCorners
 from ._time import AnyTimePlan, NoT
 from ._z import AnyZPlan, NoZ
 
@@ -156,8 +157,11 @@ class MDASequence(UseqModel):
         new_v = []
         for i in v:
             if isinstance(i, dict):
+                # TODO: find a better way
                 if "relative_to" in i:
                     new_v.extend([p.dict() for p in TileRelative(**i).tiles()])
+                elif "top_left" in i:
+                    new_v.extend([p.dict() for p in TileFromCorners(**i).tiles()])
             elif isinstance(i, AnyTilePlan):
                 new_v.extend([p.dict() for p in i.tiles()])
             elif isinstance(i, np.ndarray):
