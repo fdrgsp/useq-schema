@@ -9,8 +9,25 @@ from ._base_model import FrozenModel
 from ._z import AnyZPlan, NoZ
 
 
-class Position(FrozenModel):
-    """Define a position in 3D space.
+class Coordinate(FrozenModel):
+    """Defines a position in 3D space.
+
+    Attributes
+    ----------
+    x : float | None
+        X position in microns.
+    y : float | None
+        Y position in microns.
+    z : float | None
+        Z position in microns.
+    """
+    
+    x: Optional[float] = None
+    y: Optional[float] = None
+    z: Optional[float] = None
+
+class Position(Coordinate):
+    """Position in 3D space with optional name and z plan.
 
     Any of the attributes can be `None` to indicate that the position is not
     defined. This is useful for defining a position relative to the current
@@ -32,9 +49,6 @@ class Position(FrozenModel):
     """
 
     # if None, implies 'do not move this axis'
-    x: Optional[float] = None
-    y: Optional[float] = None
-    z: Optional[float] = None
     name: Optional[str] = None
     z_plan: AnyZPlan = Field(default_factory=NoZ)
 

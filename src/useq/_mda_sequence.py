@@ -6,13 +6,11 @@ from typing import (
     Any,
     Dict,
     Iterator,
-    List,
     Optional,
     Sequence,
     Tuple,
     Union,
     no_type_check,
-    cast
 )
 from uuid import UUID, uuid4
 from warnings import warn
@@ -24,9 +22,9 @@ from ._base_model import UseqModel
 from ._channel import Channel
 from ._mda_event import MDAEvent
 from ._position import Position
-from ._tile import AnyTilePlan, TileRelative, TileFromCorners
-from ._time import AnyTimePlan, NoT
-from ._z import AnyZPlan, NoZ
+from ._tile import AnyTilePlan, TileFromCorners, TileRelative, NoTile
+from ._time import AnyTimePlan
+from ._z import AnyZPlan
 
 if TYPE_CHECKING:
     from ._time import NoT
@@ -107,13 +105,15 @@ class MDASequence(UseqModel):
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
     axis_order: str = "".join(INDICES)
-    stage_positions: Tuple[Position | AnyTilePlan, ...] = Field(default_factory=tuple)
+    stage_positions: Tuple[Position, ...] = Field(default_factory=tuple)
+    tile: AnyTilePlan = Field(default_factory=NoTile)
     channels: Tuple[Channel, ...] = Field(default_factory=tuple)
     time_plan: AnyTimePlan = Field(default_factory=NoT)
     z_plan: AnyZPlan = Field(default_factory=NoZ)
 
     _uid: UUID = PrivateAttr(default_factory=uuid4)
     _length: Optional[int] = PrivateAttr(default=None)
+    _fov_size: tuple[float, float] = PrivateAttr(default=(1, 1))
 
     @property
     def uid(self) -> UUID:
@@ -141,6 +141,13 @@ class MDASequence(UseqModel):
         state = self.dict(exclude={"uid"})
         return type(self)(**{**state, **kwargs})
 
+    def set_fov_size(self, fov_size: tuple[float, float]) -> None:
+        """Set the field of view size.
+
+        This is used to calculate the number of tiles in a tile plan.
+        """
+        self._fov_size = fov_size
+
     def __hash__(self) -> int:
         return hash(self.uid)
 
@@ -155,6 +162,7 @@ class MDASequence(UseqModel):
     @validator("stage_positions", pre=True)
     def validate_positions(cls, v: Any) -> Any:
         new_v = []
+        # TODO: undo this back to main
         for i in v:
             if isinstance(i, dict):
                 # TODO: find a better way
@@ -358,6 +366,11 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             continue
 
         _ev = dict(zip(order, item))
+
+        # TODO: probably need a `r`, `c` like index here too.  (using something other)
+        # than 'c' because that's already used for channel.  This is trivial for 
+        # the relative tile case... but the absolute  case will somehow need to
+        # communicate the current r/c to the event.        
         index = {k: _ev[k][0] for k in INDICES if k in _ev}
 
         position: Optional[Position] = _ev[POSITION][1] if POSITION in _ev else None
@@ -367,6 +380,19 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
         # skip channels
         if channel and TIME in index and index[TIME] % channel.acquire_every:
             continue
+
+        # TODO: @fdrgsp ... need to add tiling iteration logic here.
+        # main questions:
+        # ... order. channels is the biggest challenge.
+        # - should it possible to take all channels at each tile position as well as
+        #   full tile per channel... yes.  figure that out.
+        # - don't forget to deal with absolute vs relative (one will need to take the
+        #   position object into account, the other doesn't care.  see `_combine_z`
+        #   for inspiration). 
+
+        # one possibility is that `iter_tiles()` now yields not just the tile position,
+        # but also the row/col index and whether it is absolute/releative. That also
+        # means you can get rid of the `is_relative` attribute on the tile plan.
 
         try:
             z_pos = (
@@ -378,6 +404,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             )
         except sequence._SkipFrame:
             continue
+        
 
         _channel = (
             {"config": channel.config, "group": channel.group} if channel else None
