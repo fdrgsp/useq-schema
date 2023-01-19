@@ -1,233 +1,181 @@
 from __future__ import annotations
 
-from typing import Iterator, Literal, Sequence, Union
+import itertools
+import math
+from typing import Iterator, Literal, Union
 
 from useq._base_model import FrozenModel
 from useq._position import Position
 
 
+class Coordinate(FrozenModel):
+    """Defines a position in 2D space.
+
+    Attributes
+    ----------
+    x : float
+        X position in microns.
+    y : float
+        Y position in microns.
+    """
+
+    x: float
+    y: float
+
+
 def _calculate_grid(
-    starting_position: tuple[float, float, float |  None],
+    top_left: Coordinate,
     increment_x: float,
     increment_y: float,
     rows: int,
     cols: int,
     snake_order: bool,
-    prefix: str
-) -> list[Position]:
-
-    x_pos, y_pos, z_pos = starting_position
-    tile_pos_list: list[Position] = []
-    pos_count = 0
-    starting_x = x_pos
-    for _ in range(rows):
-        x_pos = starting_x
-        for c in range(cols):
-            if c != 0:
-                x_pos += increment_x
-            tile_pos_list.append(Position(
-                name=f"{prefix}Pos{pos_count:03d}", x=x_pos, y=y_pos, z=z_pos
-            ))
-            pos_count += 1
-            if c == cols - 1:
-                y_pos -= increment_y
-
-    if snake_order:
-        snake_ordered_list = []
-        insert = False
-        for idx, pos in enumerate(tile_pos_list):
-            if idx != 0 and idx % cols == 0:
-                insert = not insert
-                index = idx
-            if insert:
-                snake_ordered_list.insert(index, pos)
-            else:
-                snake_ordered_list.append(pos)
-
-        # rename positions
-        for idx, pos in enumerate(snake_ordered_list):
-            snake_ordered_list[idx] = Position(
-                    name=f"{prefix}Pos{idx:03d}", x=pos.x, y=pos.y, z=pos.z
-                )
-
-        return snake_ordered_list
-
-    return tile_pos_list
+) -> Iterator[tuple[float, float]]:
+    # starting position must be the top left
+    for r, c in itertools.product(range(rows), range(cols)):
+        y_pos = top_left.y - (r * increment_y)
+        if snake_order and r % 2 == 1:
+            x_pos = top_left.x + ((cols - c - 1) * increment_x)
+        else:
+            x_pos = top_left.x + (c * increment_x)
+        yield (x_pos, y_pos)
 
 
-class TilePlan(FrozenModel):
-    tile_name: str  # maybe try a kind of setter method??? at the moment is immutable
-    overlap_x: float
-    overlap_y: float
-    pixel_size: float
-    camera_roi: tuple[int, int]
 
-    def __iter__(self) -> Iterator[Position]:
-        yield from self.tiles()
+class _TilePlan(FrozenModel):
+    """Base class for all tile plans.
 
-    def tiles(self) -> Sequence[Position]:
+    Attributes
+    ----------
+    overlap : float | tuple[float, float]
+        Overlap between tiles in percent. If a single value is provided, it is
+        used for both x and y. If a tuple is provided, the first value is used
+        for x and the second for y.
+    snake_order : bool
+        If `True`, tiles are arranged in a snake order (i.e. back and forth).
+        If `False`, tiles are arranged in a row-wise order.
+    """
+
+    overlap: float | tuple[float, float] = 0.0
+    snake_order: bool = True
+
+    def iter_tiles(self, fov_width: float, fov_height: float) -> Iterator[Position]:
+        """Iterate over all tiles, given a field of view size."""
         raise NotImplementedError()
 
     def __len__(self) -> int:
-        return len(self.tiles())
+        return len(list(self.iter_tiles(1, 1)))
+
+    @property
+    def is_relative(self) -> bool:
+        """Return True if the tile plan is relative to some (yet unknown) position."""
+        return True
 
 
-class TileFromCorners(TilePlan):
-    """Define a list of positions for a tile acquisition.
-
-    ...depending on a grid determined by a top_left and a
-    borrom_right positions.
+class TileFromCorners(_TilePlan):
+    """Define tile positions from two corners.
 
     Attributes
     ----------
-    tile_name : str
-        Name of the tile. It will be added as a prefix in front of each
-        tile position name. By default "".
-        (e.g. tile_name = 'Grid' -> `Grid_Pos000`, `Grid_Pos001`)
-    top_left : tuple[float, float]
-        Grid top_left position.
-    bottom_right : tuple[float, float]
-        Grid bottom_right position.
-    overlap_x: float
-        Percentage of overlap between tiles along the x axis.
-    overlap_y: float
-        Percentage of overlap between tiles along the y axis.
-    pixel_size : float
-        Pixel size of the imaging system.
-    camera_roi : tuple[int, int]
-        Camera ROI along the x and y dimensions.
-    snake_order : bool
-        Organize the positions for a `snake-type` acquisition. By default, `True`.
+    corner1 : Coordinate
+        First bounding coordinate (e.g. "top left").
+    corner2 : Coordinate
+        Second bounding coordinate (e.g. "bottom right").
     """
 
-    tile_name: str = ""
-    top_left: tuple[float, float, float | None]
-    bottom_right: tuple[float, float, float | None]
-    overlap_x: float
-    overlap_y: float
-    pixel_size: float
-    camera_roi: tuple[int, int]
-    snake_order: bool = True
+    corner1: Coordinate
+    corner2: Coordinate
 
     # TODO: add also top_right and bottom_left
-    def tiles(self) -> Sequence[Position]:
-        prefix = f"{self.tile_name}_" if self.tile_name else ""
+    def iter_tiles(self, fov_width: float, fov_height: float) -> Iterator[Position]:
+        """Yield absolute tile positions to visit.
 
-        top_left_x, top_left_y, _ = self.top_left
-        bottom_right_x, bottom_right_y, _ = self.bottom_right
-        
-        cam_width, cam_height = self.camera_roi
-        cam_width_minus_overlap = cam_width - (cam_width * self.overlap_x) / 100
-        cam_height_minus_overlap = cam_height - (cam_height * self.overlap_y) / 100
+        fov_width and fov_height should be in physical units (not pixels).
+        """
+        over = (self.overlap,) * 2 if isinstance(self.overlap, float) else self.overlap
+        overlap_x, overlap_y = over
 
-        total_width = abs(top_left_x + bottom_right_x)
-        total_height = abs(top_left_y + bottom_right_y)
+        cam_width_minus_overlap = fov_width - (fov_width * overlap_x) / 100
+        cam_height_minus_overlap = fov_height - (fov_height * overlap_y) / 100
 
-        rows = int(total_width / (cam_width_minus_overlap * self.pixel_size))
-        cols = int(total_height / (cam_height_minus_overlap * self.pixel_size))
+        total_width = abs(self.corner1.x + self.corner2.x)
+        total_height = abs(self.corner1.y + self.corner2.y)
 
-        increment_x = (
-            cam_width_minus_overlap * self.pixel_size 
-            if self.overlap_x > 0
-            else cam_width * self.pixel_size
-        )
-        increment_y = (
-            cam_height_minus_overlap * self.pixel_size 
-            if self.overlap_y > 0
-            else cam_height * self.pixel_size
-        )
+        rows = math.ceil(total_width / cam_width_minus_overlap)
+        cols = math.ceil(total_height / cam_height_minus_overlap)
 
-        return _calculate_grid(
-            self.top_left,
-            increment_x,
-            increment_y,
-            rows,
-            cols,
-            self.snake_order,
-            prefix
+        increment_x = cam_width_minus_overlap if overlap_x > 0 else fov_width
+        increment_y = cam_height_minus_overlap if overlap_y > 0 else fov_height
+
+        # TODO
+        top_left = self.corner1
+
+        yield from _calculate_grid(
+            top_left, increment_x, increment_y, rows, cols, self.snake_order
         )
 
+    @property
+    def is_relative(self) -> bool:
+        """Return True if the tile plan is relative to some (yet unknown) position."""
+        return False
 
-class TileRelative(TilePlan):
+
+class TileRelative(_TilePlan):
     """Define a list of positions for a tile acquisition.
 
-   ...relative to a specified position (`start_coords`).
+    ...relative to a specified position (`start_coords`).
 
     Attributes
     ----------
-    tile_name : str
-        Name of the tile. It will be added as a prefix in front of each
-        tile position name. By default "".
-        (e.g. tile_name = 'Grid' -> `Grid_Pos000`, `Grid_Pos001`)
     rows: int
         Number of rows.
     cols: int
         Number of columns.
-    overlap_x: float
-        Percentage of overlap between tiles along the x axis.
-    overlap_y: float
-        Percentage of overlap between tiles along the y axis.
-    pixel_size : float
-        Pixel size of the imaging system.
-    camera_roi : tuple[int, int]
-        Camera ROI along the x and y dimensions.
-    start_coords: tuple[float, float, float | None]
-        Starting x, y, z position coordinates used to generate the grid.
-    snake_order : bool
-        Organize the positions for a `snake-type` acquisition. By default, `True`.
     relative_to: Literal["center", "top_left"]:
         Define if the position list will be generated using the
         `start_coords` as a central grid position (`center`) or
         as the first top_left grid position (`top_left`).
     """
 
-    tile_name: str = ""
     rows: int
     cols: int
-    overlap_x: float
-    overlap_y: float
-    pixel_size: float
-    camera_roi: tuple[int, int]
-    start_coords: tuple[float, float, float | None]
-    snake_order: bool = True
-    relative_to: Literal["center", "top_left"]
+    relative_to: Literal["center", "top_left"] = "center"
 
-    def tiles(self) -> Sequence[Position]:
-        """Generate the position list."""
-        prefix = f"{self.tile_name}_" if self.tile_name else ""
+    def iter_tiles(self, fov_width: float, fov_height: float) -> Iterator[Position]:
+        """Yield deltas relative to some position.
 
-        x_pos, y_pos, _ = self.start_coords
-        cam_width, cam_height = self.camera_roi
-        cam_width_minus_overlap = cam_width - (cam_width * self.overlap_x) / 100
-        cam_height_minus_overlap = cam_height - (cam_height * self.overlap_y) / 100
+        fov_width and fov_height should be in physical units (not pixels).
+        """
+        over = (self.overlap,) * 2 if isinstance(self.overlap, float) else self.overlap
+        overlap_x, overlap_y = over
+
+        x_pos, y_pos = (0.0, 0.0)
+        cam_width_minus_overlap = fov_width - (fov_width * overlap_x) / 100
+        cam_height_minus_overlap = fov_height - (fov_height * overlap_y) / 100
 
         if self.relative_to == "center":
             # move to top left corner
-            move_x = (cam_width / 2) * (self.cols - 1) - cam_width_minus_overlap
-            move_y = (cam_height / 2) * (self.rows - 1) - cam_height_minus_overlap
-            x_pos -= self.pixel_size * (move_x + cam_width)
-            y_pos += self.pixel_size * (move_y + cam_height)
+            move_x = (fov_width / 2) * (self.cols - 1) - cam_width_minus_overlap
+            move_y = (fov_height / 2) * (self.rows - 1) - cam_height_minus_overlap
+            x_pos -= move_x + fov_width
+            y_pos += move_y + fov_height
 
-        increment_x = (
-            cam_width_minus_overlap * self.pixel_size 
-            if self.overlap_x > 0
-            else cam_width * self.pixel_size
-        )
-        increment_y = (
-            cam_height_minus_overlap * self.pixel_size 
-            if self.overlap_y > 0
-            else cam_height * self.pixel_size
-        )
-        
-        return _calculate_grid(
-            self.start_coords,
+        increment_x = cam_width_minus_overlap if overlap_x > 0 else fov_width
+        increment_y = cam_height_minus_overlap if overlap_y > 0 else fov_height
+
+        yield from _calculate_grid(
+            Coordinate(x=x_pos, y=y_pos),
             increment_x,
             increment_y,
             self.rows,
             self.cols,
             self.snake_order,
-            prefix
         )
 
 
-AnyTilePlan = Union[TileFromCorners, TileRelative]
+class NoTile(_TilePlan):
+    def iter_tiles(self, fov_width: float, fov_height: float) -> Iterator[Position]:
+        return iter([])
+
+
+AnyTilePlan = Union[TileFromCorners, TileRelative, NoTile]
