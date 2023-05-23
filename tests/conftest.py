@@ -33,3 +33,13 @@ def mda1() -> MDASequence:
         z_plan={"range": 1.0, "step": 0.5},
         grid_plan={"rows": 2, "columns": 1},
     )
+
+
+
+
+s = MDASequence(
+    stage_positions=[{"x": 10, "y": 20, "z": 50, "z_focus": "Z", "sequence": MDASequence(grid_plan={"rows": 2, "columns": 3})}],
+    channels=[{"config": "Cy5", "exposure": 100}],
+    z_plan={"range": 1.0, "step": 0.5},
+)
+

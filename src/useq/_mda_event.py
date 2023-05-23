@@ -123,6 +123,8 @@ class MDAEvent(UseqModel):
     x_pos: Optional[float] = None
     y_pos: Optional[float] = None
     z_pos: Optional[float] = None
+    z_device: Optional[str] = None
+    z_is_autofocus: bool = False
     properties: Optional[List[PropertyTuple]] = None
     sequence: Optional[MDASequence] = Field(default=None, repr=False)
     global_index: int = Field(default=0, repr=False)

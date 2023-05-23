@@ -1,4 +1,4 @@
-from typing import Iterator, List, Sequence, Union
+from typing import Iterator, List, Optional, Sequence, Union
 
 import numpy as np
 
@@ -7,6 +7,7 @@ from ._base_model import FrozenModel
 
 class ZPlan(FrozenModel):
     go_up: bool
+    z_device: Optional[str] = None
 
     def __iter__(self) -> Iterator[float]:  # type: ignore
         positions = self.positions()

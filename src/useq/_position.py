@@ -35,6 +35,8 @@ class Position(FrozenModel):
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None
+    z_device: Optional[str] = None
+    z_is_autofocus: bool = False
     name: Optional[str] = None
     sequence: Optional[MDASequence] = None
 
