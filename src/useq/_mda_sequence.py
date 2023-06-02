@@ -446,10 +446,12 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                 if position
                 else None
             )
-            z_device, use_autofocus_device = _get_z_device(sequence, position, index)
-
         except sequence._SkipFrame:
             continue
+
+        print("________________", z_pos)
+
+        z_device, is_autofocus_device = _get_z_device(sequence, position, index)
 
         if grid:
             x_pos: Optional[float] = grid.x
@@ -469,20 +471,22 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                 # values from the parent event, and shifting the position of the
                 # event to account for global position offsets (or override if the
                 # sub-event has an absolute XYZ position plan.)
-                z_device, use_autofocus_device =_get_z_device(sequence, position, index)
+                z_device, is_autofocus_device = _get_z_device(
+                    position.sequence, position, index
+                )
                 update_kwargs = dict(
                     global_index=global_index,
                     index={**index, **sub_event.index},
                     sequence=sequence,
                     pos_name=position.name or pos_name,
                     z_device=z_device,
-                    use_autofocus_device=use_autofocus_device,
+                    is_autofocus_device=is_autofocus_device,
                     **_maybe_shifted_positions(
                         sub_event=sub_event,
                         position=position,
                         x_pos=x_pos,
                         y_pos=y_pos,
-                        z_pos=z_pos
+                        z_pos=z_pos,
                     ),
                 )
 
@@ -509,7 +513,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             y_pos=y_pos,
             z_pos=z_pos,
             z_device=z_device,
-            use_autofocus_device=use_autofocus_device,
+            is_autofocus_device=is_autofocus_device,
             exposure=_exposure,
             channel=_channel,
             sequence=sequence,
@@ -519,23 +523,24 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
 
 
 def _get_z_device(
-        sequence: MDASequence, position: Optional[Position], index: dict[str, Any]
-    ) -> str | None:
+    sequence: MDASequence, position: Optional[Position], index: dict[str, Any]
+) -> str | None:
     """Get z_device and if it is an autofocus device from position and z_plan."""
     if position:
+        # TODO: fix if not sequence.z_plan.is_relative:
         if sequence.z_plan and index["z"] > 0:
             z_device = sequence.z_plan.z_device
-            use_autofocus_device = False
+            is_autofocus_device = False
         else:
             z_device = position.z_device or None
-            use_autofocus_device = position.use_autofocus_device
+            is_autofocus_device = position.is_autofocus_device
     elif sequence.z_plan:
         z_device = sequence.z_plan.z_device
-        use_autofocus_device = False
+        is_autofocus_device = False
     else:
         z_device = None
-        use_autofocus_device = False
-    return z_device, use_autofocus_device
+        is_autofocus_device = False
+    return z_device, is_autofocus_device
 
 
 def _maybe_shifted_positions(
