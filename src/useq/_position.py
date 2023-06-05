@@ -25,6 +25,10 @@ class Position(FrozenModel):
         Y position in microns.
     z : float | None
         Z position in microns.
+    z_device : str | None
+        Name of the device to use for Z motion.
+    is_autofocus_device : bool
+        Whether the z_device is an autofocus z device.
     name : str | None
         Optional name for the position.
     sequence : MDASequence | None
