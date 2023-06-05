@@ -449,8 +449,6 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
         except sequence._SkipFrame:
             continue
 
-        print("________________", z_pos)
-
         z_device, is_autofocus_device = _get_z_device(sequence, position, index)
 
         if grid:
