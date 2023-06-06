@@ -449,7 +449,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
         except sequence._SkipFrame:
             continue
 
-        z_device, is_autofocus_z_device = _get_z_device(sequence, position, index)
+        z_device, use_one_shot_focus = _get_z_device(sequence, position, index)
 
         if grid:
             x_pos: Optional[float] = grid.x
@@ -469,7 +469,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                 # values from the parent event, and shifting the position of the
                 # event to account for global position offsets (or override if the
                 # sub-event has an absolute XYZ position plan.)
-                z_device, is_autofocus_z_device = _get_z_device(
+                z_device, use_one_shot_focus = _get_z_device(
                     position.sequence, position, index
                 )
                 update_kwargs = dict(
@@ -478,7 +478,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                     sequence=sequence,
                     pos_name=position.name or pos_name,
                     z_device=z_device,
-                    is_autofocus_z_device=is_autofocus_z_device,
+                    use_one_shot_focus=use_one_shot_focus,
                     **_maybe_shifted_positions(
                         sub_event=sub_event,
                         position=position,
@@ -511,7 +511,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             y_pos=y_pos,
             z_pos=z_pos,
             z_device=z_device,
-            is_autofocus_z_device=is_autofocus_z_device,
+            use_one_shot_focus=use_one_shot_focus,
             exposure=_exposure,
             channel=_channel,
             sequence=sequence,
@@ -528,17 +528,17 @@ def _get_z_device(
         # TODO: fix if not sequence.z_plan.is_relative:
         if sequence.z_plan and index["z"] > 0:
             z_device = sequence.z_plan.z_device
-            is_autofocus_z_device = False
+            use_one_shot_focus = False
         else:
             z_device = position.z_device or None
-            is_autofocus_z_device = position.is_autofocus_z_device
+            use_one_shot_focus = position.use_one_shot_focus
     elif sequence.z_plan:
         z_device = sequence.z_plan.z_device
-        is_autofocus_z_device = False
+        use_one_shot_focus = False
     else:
         z_device = None
-        is_autofocus_z_device = False
-    return z_device, is_autofocus_z_device
+        use_one_shot_focus = False
+    return z_device, use_one_shot_focus
 
 
 def _maybe_shifted_positions(
