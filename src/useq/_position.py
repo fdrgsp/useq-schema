@@ -28,7 +28,7 @@ class Position(FrozenModel):
     z_device : str | None
         Name of the device to use for Z motion.
     use_one_shot_focus : bool
-        Whether to use one-shot focus device at this position.
+        Whether to use the one-shot focus device at this position.
     name : str | None
         Optional name for the position.
     sequence : MDASequence | None
