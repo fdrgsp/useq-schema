@@ -7,7 +7,6 @@ from ._base_model import FrozenModel
 
 class ZPlan(FrozenModel):
     go_up: bool
-    z_device: Optional[str] = None
 
     def __iter__(self) -> Iterator[float]:  # type: ignore
         positions = self.positions()
