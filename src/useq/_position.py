@@ -27,7 +27,7 @@ class Position(FrozenModel):
         Z position in microns.
     z_device : str | None
         Name of the device to use for Z motion.
-    use_one_shot_focus : bool
+    z_autofocus_device : bool
         Whether to use the one-shot focus device at this position.
     name : str | None
         Optional name for the position.
@@ -39,8 +39,9 @@ class Position(FrozenModel):
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None
+    z_autofocus: Optional[float] = None
     z_device: Optional[str] = None
-    use_one_shot_focus: bool = False
+    z_autofocus_device: Optional[str] = None
     name: Optional[str] = None
     sequence: Optional[MDASequence] = None
 
