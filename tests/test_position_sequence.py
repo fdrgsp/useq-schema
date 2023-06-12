@@ -1,4 +1,4 @@
-from useq import MDASequence
+from useq import MDASequence, PropertyTuple
 
 
 # test channels
@@ -676,3 +676,31 @@ def test_channels_and_pos_z_grid_and_time_plan():
 
     chs = {i.channel.config for i in mda}
     assert chs == {"Cy5", "FITC"}
+
+
+def test_properties_in_event():
+    # test that each event inherits the properties of the position
+    mda = MDASequence(
+        stage_positions=[
+            {   
+                "sequence": {"z_plan": {"range": 2, "step": 1}},
+                "properties": [
+                    ("device_name", "property_name", "property_value"),
+                    ("device_name_1", "property_name_1", "property_value_1")
+                ]
+            },
+        ],
+        grid_plan={"rows": 2, "columns": 1},
+    )
+
+    props = [e.properties for e in mda]
+    assert len(props) == 6
+
+    p = props[0]
+    assert len(p) == 2
+    assert isinstance(p[0], PropertyTuple)
+    assert p[0].device_name in ["device_name", "device_name_1"]
+    assert p[0].property_name in ["property_name", "property_name_1"]
+    assert p[0].property_value in ["property_value", "property_value_1"]
+
+
