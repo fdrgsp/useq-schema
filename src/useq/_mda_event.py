@@ -35,12 +35,16 @@ class Channel(UseqModel):
     group : str
         Optional name of the group to which this channel belongs. By default,
         `"Channel"`.
+    do_stack : bool
+        If `True`, include this channel in any z stacks acquired. By default, `True`.
+    z_offset : float
+        Relative Z offset from z position, in microns. By default, `0`.
     """
 
     config: str
     group: str = "Channel"
+    do_stack: bool = True
     z_offset: float = 0.0
-    do_stack: bool = False
 
 
 class PropertyTuple(NamedTuple):
