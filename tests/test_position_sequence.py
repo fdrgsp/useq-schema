@@ -1,4 +1,5 @@
 from useq import MDASequence, PropertyTuple
+from useq._mda_event import Channel
 
 
 # test channels
@@ -676,6 +677,36 @@ def test_channels_and_pos_z_grid_and_time_plan():
 
     chs = {i.channel.config for i in mda}
     assert chs == {"Cy5", "FITC"}
+
+
+def test_channel_do_stack_in_event():
+    # test channel do_stack
+    mda = MDASequence(
+        channels=[{"config": "Cy5", "exposure": 50, "do_stack": True}],
+        z_plan={"range": 3, "step": 1},
+    )
+    mda1 = MDASequence(
+        channels=[{"config": "Cy5", "exposure": 50, "do_stack": False}],
+        z_plan={"range": 3, "step": 1},
+    )
+    assert isinstance(list(mda)[0].channel, Channel)
+    assert list(mda)[0].channel == Channel(config='Cy5', z_offset=0.0, do_stack=True)
+    assert len(mda) == 4
+    assert len(mda1) == 1
+
+
+def test_channesl_z_offset_in_event():
+    # test channel z_offset
+    mda = MDASequence(
+        channels=[
+            {"config": "Cy5", "exposure": 10, "z_offset": 10},
+            {"config": "FITC", "exposure": 10}
+            ],
+        z_plan={"range": 2, "step": 1},
+    )
+    assert isinstance(list(mda)[0].channel, Channel)
+    assert list(mda)[0].channel == Channel(config='Cy5', z_offset=10.0, do_stack=True)
+    assert [e.z_pos for e in mda] == [9.0, 10.0, 11.0, -1.0, 0.0, 1.0]
 
 
 def test_properties_in_event():
