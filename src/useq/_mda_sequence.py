@@ -479,7 +479,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                     index={**index, **sub_event.index},
                     sequence=sequence,
                     pos_name=position.name or pos_name,
-                    properties=position.properties,
+                    properties=position.properties if position else None,
                     **_maybe_shifted_positions(
                         sub_event=sub_event,
                         position=position,
@@ -515,7 +515,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             channel=_channel,
             sequence=sequence,
             global_index=global_index,
-            properties=position.properties,
+            properties=position.properties if position else None,
         )
         global_index += 1
 
