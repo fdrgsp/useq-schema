@@ -433,7 +433,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                 config=channel.config,
                 group=channel.group,
                 z_offset=channel.z_offset,
-                do_stack=channel.do_stack
+                do_stack=channel.do_stack,
             )
             if channel
             else None
@@ -448,7 +448,12 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                 sequence._combine_z(_ev[Z][1], index[Z], channel, position)
                 if Z in _ev
                 else position.z + channel.z_offset
-                if position and channel.z_offset is not None
+                if (
+                    position
+                    and position.z is not None
+                    and channel
+                    and channel.z_offset is not None
+                )
                 else position.z
                 if position
                 else None
