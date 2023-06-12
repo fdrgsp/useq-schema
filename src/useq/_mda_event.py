@@ -39,6 +39,8 @@ class Channel(UseqModel):
 
     config: str
     group: str = "Channel"
+    z_offset: float = 0.0
+    do_stack: bool = False
 
 
 class PropertyTuple(NamedTuple):

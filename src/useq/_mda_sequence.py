@@ -22,7 +22,7 @@ from . import _mda_event
 from ._base_model import UseqModel
 from ._channel import Channel
 from ._grid import AnyGridPlan, GridPosition, NoGrid
-from ._mda_event import MDAEvent
+from ._mda_event import MDAEvent, PropertyTuple
 from ._position import Position
 from ._time import AnyTimePlan, NoT
 from ._z import AnyZPlan, NoZ
@@ -429,7 +429,12 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                 continue
 
         _channel = (
-            _mda_event.Channel(config=channel.config, group=channel.group)
+            _mda_event.Channel(
+                config=channel.config,
+                group=channel.group,
+                z_offset=channel.z_offset,
+                do_stack=channel.do_stack
+            )
             if channel
             else None
         )
@@ -442,6 +447,8 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             z_pos = (
                 sequence._combine_z(_ev[Z][1], index[Z], channel, position)
                 if Z in _ev
+                else position.z + channel.z_offset
+                if position and channel.z_offset is not None
                 else position.z
                 if position
                 else None
@@ -472,12 +479,13 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                     index={**index, **sub_event.index},
                     sequence=sequence,
                     pos_name=position.name or pos_name,
+                    properties=position.properties,
                     **_maybe_shifted_positions(
                         sub_event=sub_event,
                         position=position,
-                        z_pos=z_pos,
                         x_pos=x_pos,
                         y_pos=y_pos,
+                        z_pos=z_pos,
                     ),
                 )
 
@@ -507,6 +515,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             channel=_channel,
             sequence=sequence,
             global_index=global_index,
+            properties=position.properties,
         )
         global_index += 1
 

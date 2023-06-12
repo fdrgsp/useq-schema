@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Generator, Optional
+from typing import TYPE_CHECKING, Any, Callable, Generator, List, Optional
 
 import numpy as np
+
+from useq import PropertyTuple
 
 from ._base_model import FrozenModel
 
@@ -29,6 +31,9 @@ class Position(FrozenModel):
         Optional name for the position.
     sequence : MDASequence | None
         Optional MDASequence relative this position.
+    properties : Sequence[PropertyTuple] | None
+        List of [`useq.PropertyTuple`][] where each item in the list is a
+        3-member named tuple of `(device_name, property_name, property_value)`.
     """
 
     # if None, implies 'do not move this axis'
@@ -37,6 +42,7 @@ class Position(FrozenModel):
     z: Optional[float] = None
     name: Optional[str] = None
     sequence: Optional[MDASequence] = None
+    properties: Optional[List[PropertyTuple]] = None
 
     @classmethod
     def __get_validators__(cls) -> Generator[Callable[..., Any], None, None]:
