@@ -442,6 +442,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
         _exposure = getattr(channel, "exposure", None)
 
         pos_name = getattr(position, "name", None)
+        pos_properties = getattr(position, "properties", None)
 
         try:
             z_pos = (
@@ -484,7 +485,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                     index={**index, **sub_event.index},
                     sequence=sequence,
                     pos_name=position.name or pos_name,
-                    properties=position.properties if position else None,
+                    properties=position.properties or pos_properties,
                     **_maybe_shifted_positions(
                         sub_event=sub_event,
                         position=position,
@@ -520,7 +521,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             channel=_channel,
             sequence=sequence,
             global_index=global_index,
-            properties=position.properties if position else None,
+            properties=pos_properties,
         )
         global_index += 1
 
