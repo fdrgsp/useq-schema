@@ -30,7 +30,7 @@ class Position(FrozenModel):
     sequence : MDASequence | None
         Optional MDASequence relative this position.
     autofocus : tuple[str, float] | None
-        Optional tuple with autofocus device name and autofocus position.
+        Optional tuple with autofocus z device name and autofocus z position.
     """
 
     # if None, implies 'do not move this axis'
