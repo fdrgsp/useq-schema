@@ -18,7 +18,7 @@ from warnings import warn
 import numpy as np
 from pydantic import Field, PrivateAttr, root_validator, validator
 
-from . import _mda_event
+from . import MDAEvent, _mda_event
 from ._base_model import UseqModel
 from ._channel import Channel
 from ._grid import AnyGridPlan, GridPosition, NoGrid
