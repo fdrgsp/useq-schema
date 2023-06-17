@@ -104,6 +104,8 @@ class MDAEvent(UseqModel):
     z_pos : float | None
         Z position in microns. If not provided, implies use current position. By
         default, `None`.
+    autofocus : tuple[str, float] | None
+        Optional tuple with autofocus device name and autofocus position.    
     properties : Sequence[PropertyTuple] | None
         List of [`useq.PropertyTuple`][] to set before starting this event. Where each
         item in the list is a 3-member named tuple of `(device_name, property_name,
@@ -133,6 +135,7 @@ class MDAEvent(UseqModel):
     sequence: Optional[MDASequence] = Field(default=None, repr=False)
     global_index: int = Field(default=0, repr=False)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    autofocus: Optional[Tuple[str, float]] = None
 
     # action
     # keep shutter open between channels/steps
