@@ -22,7 +22,6 @@ from . import _mda_event
 from ._base_model import UseqModel
 from ._channel import Channel
 from ._grid import AnyGridPlan, GridPosition, NoGrid
-from ._mda_event import MDAEvent, PropertyTuple
 from ._position import Position
 from ._time import AnyTimePlan, NoT
 from ._z import AnyZPlan, NoZ
@@ -440,9 +439,8 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
         )
 
         _exposure = getattr(channel, "exposure", None)
-
         pos_name = getattr(position, "name", None)
-        pos_properties = getattr(position, "properties", None)
+        autofocus = getattr(position, "autofocus", None)
 
         try:
             z_pos = (
@@ -485,7 +483,7 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                     index={**index, **sub_event.index},
                     sequence=sequence,
                     pos_name=position.name or pos_name,
-                    properties=position.properties or pos_properties,
+                    autofocus=position.autofocus or autofocus,
                     **_maybe_shifted_positions(
                         sub_event=sub_event,
                         position=position,
@@ -517,11 +515,11 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             x_pos=x_pos,
             y_pos=y_pos,
             z_pos=z_pos,
+            autofocus=position.autofocus or autofocus,
             exposure=_exposure,
             channel=_channel,
             sequence=sequence,
             global_index=global_index,
-            properties=pos_properties,
         )
         global_index += 1
 
