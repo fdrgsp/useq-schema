@@ -60,6 +60,27 @@ class PropertyTuple(NamedTuple):
     property_value: Any
 
 
+class AutoFocusParams(NamedTuple):
+    """Parameters for performing hardware autofocus.
+
+    Attributes
+    ----------
+    autofocus_z_device_name : str
+        Name of the hardware autofocus z device.
+    af_motor_offset : float | None
+        Before autofocus is performed, the autofocus motor should be moved to this
+        offset.
+    z_stage_position : float | None
+        Before autofocus is performed, the z stage should be moved to this position.
+        (Note: the Z-stage is the "main" z-axis, and is not the same as the autofocus
+        device.)
+    """
+
+    autofocus_z_device_name: str
+    af_motor_offset: Optional[float] = None
+    z_stage_position: Optional[float] = None
+
+
 def _readonly(self: object, *_: Any, **__: Any) -> NoReturn:
     raise RuntimeError(f"Cannot modify {type(self).__name__}")
 
@@ -131,7 +152,7 @@ class MDAEvent(UseqModel):
     sequence: Optional[MDASequence] = Field(default=None, repr=False)
     global_index: int = Field(default=0, repr=False)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    autofocus: Optional[AnyAF] = None
+    autofocus: Optional[AutoFocusParams] = None
 
     # action
     # keep shutter open between channels/steps
