@@ -1,34 +1,33 @@
+from __future__ import annotations
+
 from ast import literal_eval
 from contextlib import suppress
 from functools import cached_property
 from typing import (
     TYPE_CHECKING,
-    Annotated,
     Any,
-    Callable,
     Iterable,
+    List,
     Mapping,
-    Required,
     Sequence,
-    TypedDict,
+    Tuple,
     Union,
     cast,
     overload,
 )
 
 import numpy as np
-from pydantic import (
-    Field,
-    field_validator,
-    model_validator,
-)
+from pydantic import Field, field_validator, model_validator
 from pydantic_core import core_schema
+from typing_extensions import Annotated
 
 from useq._base_model import FrozenModel
 from useq._grid import GridPosition, GridRowsColumns, RandomPoints, Shape, _PointsPlan
 from useq._position import Position
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Required, TypedDict
 
     class KnownPlateKwargs(TypedDict, total=False):
         rows: Required[int]
@@ -63,17 +62,13 @@ class _SliceType:
         )
 
 
-Index = int | list[int] | Annotated[slice, _SliceType]
-IndexExpression = tuple[Index, ...] | Index
-
-
 class WellPlate(FrozenModel):
     """A multi-well plate definition."""
 
     rows: int
     columns: int
-    well_spacing: tuple[float, float]  # (x, y)
-    well_size: tuple[float, float] | None = None  # (x, y)
+    well_spacing: Tuple[float, float]  # (x, y)
+    well_size: Union[Tuple[float, float], None] = None  # (x, y)
     circular_wells: bool = True
     name: str = ""
 
@@ -103,7 +98,7 @@ class WellPlate(FrozenModel):
         return value
 
     @classmethod
-    def from_str(cls, name: str) -> "WellPlate":
+    def from_str(cls, name: str) -> WellPlate:
         """Lookup a plate by registered name.
 
         Use `useq.register_well_plates` to add new plates to the registry.
@@ -116,6 +111,10 @@ class WellPlate(FrozenModel):
                 "Use `useq.register_well_plates` to add new plate definitions"
             ) from e
         return WellPlate.model_validate(obj)
+
+
+Index = Union[int, List[int], Annotated[slice, _SliceType]]
+IndexExpression = Union[Tuple[Index, ...], Index]
 
 
 class WellPlatePlan(FrozenModel, Sequence[Position]):
@@ -138,16 +137,16 @@ class WellPlatePlan(FrozenModel, Sequence[Position]):
     """
 
     plate: WellPlate
-    a1_center_xy: tuple[float, float]
+    a1_center_xy: Tuple[float, float]
     # if expressed as a single number, it is assumed to be the angle in degrees
     # with anti-clockwise rotation
     # if expressed as a string, rad/deg is inferred from the string
     # if expressed as a tuple, it is assumed to be a 2x2 rotation matrix or a 4-tuple
-    rotation: float | None = None
+    rotation: Union[float, None] = None
     # Any <2-dimensional index expression, where None means all wells
     # and slice(0, 0) means no wells
-    selected_wells: IndexExpression | None = None
-    well_points_plan: Union[GridRowsColumns | RandomPoints | Position] = Field(
+    selected_wells: Union[IndexExpression, None] = None
+    well_points_plan: Union[GridRowsColumns, RandomPoints, Position] = Field(
         default_factory=lambda: Position(x=0, y=0)
     )
 
@@ -200,7 +199,7 @@ class WellPlatePlan(FrozenModel, Sequence[Position]):
         return value
 
     @model_validator(mode="after")
-    def _validate_self(self) -> "WellPlatePlan":
+    def _validate_self(self) -> WellPlatePlan:
         try:
             # make sure we can index an array of shape (Rows, Cols)
             # with the selected_wells expression
@@ -439,7 +438,9 @@ def _index_to_row_name(index: int) -> str:
 
 # ---------------------------- Known Plates ----------------------------
 
-_KNOWN_PLATES: dict[str, "KnownPlateKwargs | WellPlate"] = {
+PlateOrKwargs = Union["KnownPlateKwargs", WellPlate]
+_KNOWN_PLATES: dict[str, PlateOrKwargs] = {
+    "6-well": {"rows": 2, "columns": 3, "well_spacing": 39.12, "well_size": 34.8},
     "12-well": {"rows": 3, "columns": 4, "well_spacing": 26, "well_size": 22},
     "24-well": {"rows": 4, "columns": 6, "well_spacing": 19, "well_size": 15.6},
     "48-well": {"rows": 6, "columns": 8, "well_spacing": 13, "well_size": 11.1},
@@ -463,23 +464,22 @@ _KNOWN_PLATES: dict[str, "KnownPlateKwargs | WellPlate"] = {
 
 @overload
 def register_well_plates(
-    plates: Mapping[str, "KnownPlateKwargs | WellPlate"],
+    plates: Mapping[str, PlateOrKwargs],
     /,
-    **kwargs: "KnownPlateKwargs | WellPlate",
+    **kwargs: PlateOrKwargs,
 ) -> None: ...
 @overload
 def register_well_plates(
-    plates: Iterable[tuple[str, "KnownPlateKwargs | WellPlate"]],
+    plates: Iterable[tuple[str, PlateOrKwargs]],
     /,
-    **kwargs: "KnownPlateKwargs | WellPlate",
+    **kwargs: PlateOrKwargs,
 ) -> None: ...
 @overload
-def register_well_plates(**kwargs: "KnownPlateKwargs | WellPlate") -> None: ...
+def register_well_plates(**kwargs: PlateOrKwargs) -> None: ...
 def register_well_plates(
-    plates: Mapping[str, "KnownPlateKwargs | WellPlate"]
-    | Iterable[tuple[str, "KnownPlateKwargs | WellPlate"]] = (),
+    plates: Mapping[str, PlateOrKwargs] | Iterable[tuple[str, PlateOrKwargs]] = (),
     /,
-    **kwargs: "KnownPlateKwargs | WellPlate",
+    **kwargs: PlateOrKwargs,
 ) -> None:
     """Register well-plate definitions to allow lookup by key.
 
