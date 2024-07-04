@@ -138,7 +138,7 @@ class GridPosition(NamedTuple):
     row: int
     col: int
     is_relative: bool
-    name: str
+    name: str = ""
 
 
 class _PointsPlan(FrozenModel):
@@ -250,7 +250,12 @@ class _GridPlan(_PointsPlan):
 
         for idx, (r, c) in enumerate(_INDEX_GENERATORS[mode](rows, cols)):
             yield GridPosition(
-                x0 + c * dx, y0 - r * dy, r, c, self.is_relative, f"{idx}"
+                x0 + c * dx,
+                y0 - r * dy,
+                r,
+                c,
+                self.is_relative,
+                f"{str(idx).zfill(4)}",
             )
 
     def __iter__(self) -> Iterator[GridPosition]:  # type: ignore
@@ -504,7 +509,7 @@ class RandomPoints(_PointsPlan):
                 or self.fov_height is None
                 or _is_a_valid_point(points, x, y, self.fov_width, self.fov_height)
             ):
-                yield GridPosition(x, y, 0, 0, True, f"{idx}")
+                yield GridPosition(x, y, 0, 0, True, f"{str(idx).zfill(4)}")
                 points.append((x, y))
             if len(points) >= self.num_points:
                 break
