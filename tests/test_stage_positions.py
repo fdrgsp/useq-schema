@@ -43,6 +43,14 @@ _ABSOLUTE_GRID_PLANS = [
     ),
 ]
 
+_RELATIVE_SUB_GRID_PLANS = [
+    pytest.param({"rows": 2, "columns": 2}, id="GridRowsColumns"),
+    pytest.param(
+        useq.RandomPoints(num_points=3, max_width=100, max_height=100),
+        id="RandomPoints",
+    ),
+]
+
 
 @pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
 def test_position_warns_on_absolute_sub_sequence_grid(
@@ -55,8 +63,192 @@ def test_position_warns_on_absolute_sub_sequence_grid(
     assert pos.y is None
 
 
-def test_position_no_warn_on_relative_sub_sequence_grid() -> None:
+@pytest.mark.parametrize("sub_plan", _RELATIVE_SUB_GRID_PLANS)
+def test_position_no_warn_on_relative_sub_sequence_grid(sub_plan: Any) -> None:
     """Position keeps x/y when sub-sequence uses a relative grid."""
-    pos = useq.Position(x=1, y=2, sequence={"grid_plan": {"rows": 2, "columns": 2}})
+    pos = useq.Position(x=1, y=2, sequence={"grid_plan": sub_plan})
     assert pos.x == 1
     assert pos.y == 2
+
+
+@pytest.mark.parametrize("sub_plan", _RELATIVE_SUB_GRID_PLANS)
+def test_position_none_xy_rejected_with_relative_sub_sequence_grid(
+    sub_plan: Any,
+) -> None:
+    """Position with x=None or y=None raises when sub-sequence uses a relative grid."""
+    with pytest.raises(Exception, match="has no defined x/y coordinates"):
+        useq.Position(x=None, y=None, z=3, sequence={"grid_plan": sub_plan})
+
+
+def test_add_with_none_coordinates() -> None:
+    """__add__ uses the other's value when self coordinate is None."""
+    pos = useq.Position(x=None, y=None, z=3)
+    rel = useq.RelativePosition(x=5, y=10, z=0)
+    result = pos + rel
+    assert result.x == 5
+    assert result.y == 10
+    assert result.z == 3
+
+
+def test_add_both_have_values() -> None:
+    """__add__ sums values when both sides have them."""
+    pos = useq.Position(x=1, y=2, z=3)
+    rel = useq.RelativePosition(x=5, y=10, z=1)
+    result = pos + rel
+    assert result.x == 6
+    assert result.y == 12
+    assert result.z == 4
+
+
+def test_radd() -> None:
+    """__radd__ supports reversed addition (RelativePosition + AbsolutePosition)."""
+    pos = useq.Position(x=1, y=2, z=3)
+    rel = useq.RelativePosition(x=5, y=10, z=0)
+    result = rel + pos
+    assert result.x == 6
+    assert result.y == 12
+    assert result.z == 3
+
+
+@pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
+def test_z_only_position_with_absolute_grid(grid_plan: dict) -> None:
+    """Position(x=None, y=None, z=3) stays AbsolutePosition with absolute grid."""
+    seq = useq.MDASequence(
+        stage_positions=[(None, None, 3)],
+        grid_plan=grid_plan,
+    )
+    assert len(seq.stage_positions) == 1
+    pos = seq.stage_positions[0]
+    assert isinstance(pos, useq.Position)
+    assert pos.x is None
+    assert pos.y is None
+    assert pos.z == 3
+
+
+@pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
+def test_warns_and_clears_xy_with_absolute_grid(grid_plan: dict) -> None:
+    """Warns when positions have x/y with absolute grid, clears x/y."""
+    with pytest.warns(UserWarning, match="is ignored when using"):
+        seq = useq.MDASequence(
+            stage_positions=[(1, 2, 3)],
+            grid_plan=grid_plan,
+        )
+    pos = seq.stage_positions[0]
+    assert isinstance(pos, useq.Position)
+    assert pos.x is None
+    assert pos.y is None
+    assert pos.z == 3
+
+
+@pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
+def test_sub_sequence_absolute_grid_stays_position(grid_plan: dict) -> None:
+    """Position with sub-sequence absolute grid stays AbsolutePosition."""
+    seq = useq.MDASequence(
+        stage_positions=[
+            useq.Position(x=None, y=None, z=3.0, sequence={"grid_plan": grid_plan})
+        ]
+    )
+    pos = seq.stage_positions[0]
+    assert isinstance(pos, useq.Position)
+    assert pos.x is None
+    assert pos.y is None
+    assert pos.z == 3.0
+    assert pos.sequence is not None
+
+
+@pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
+def test_sub_sequence_absolute_grid_warns_and_clears_xy(grid_plan: dict) -> None:
+    """Position with x/y + sub-sequence absolute grid warns then clears x/y."""
+    with pytest.warns(UserWarning, match="is ignored when a position sequence uses"):
+        seq = useq.MDASequence(
+            stage_positions=[
+                useq.Position(x=1, y=2, z=3.0, sequence={"grid_plan": grid_plan})
+            ]
+        )
+    pos = seq.stage_positions[0]
+    assert isinstance(pos, useq.Position)
+    assert pos.x is None
+    assert pos.y is None
+    assert pos.z == 3.0
+
+
+def test_relative_position_rejected_in_stage_positions() -> None:
+    """RelativePosition is always rejected in stage_positions."""
+    with pytest.raises(Exception, match="RelativePosition cannot be used"):
+        useq.MDASequence(stage_positions=[useq.RelativePosition(x=1, y=2, z=3)])
+
+    # Also rejected even with an absolute grid
+    with pytest.raises(Exception, match="RelativePosition cannot be used"):
+        useq.MDASequence(
+            stage_positions=[useq.RelativePosition(z=3)],
+            grid_plan={"top": 1, "bottom": -1, "left": 0, "right": 0},
+        )
+
+
+_RELATIVE_GRID_PLANS = [
+    pytest.param({"rows": 2, "columns": 2}, id="GridRowsColumns"),
+    pytest.param(
+        useq.RandomPoints(num_points=3, max_width=100, max_height=100),
+        id="RandomPoints",
+    ),
+]
+
+
+@pytest.mark.parametrize("grid_plan", _RELATIVE_GRID_PLANS)
+def test_position_none_xy_rejected_with_relative_grid(grid_plan: dict) -> None:
+    """Position with x=None or y=None raises when the global grid plan is relative."""
+    with pytest.raises(Exception, match="has no defined x/y coordinates"):
+        useq.MDASequence(
+            stage_positions=[(None, None, 3)],
+            grid_plan=grid_plan,
+        )
+
+
+@pytest.mark.parametrize("grid_plan", _RELATIVE_GRID_PLANS)
+def test_position_none_xy_with_relative_grid_exempt_if_own_absolute_sub_grid(
+    grid_plan: dict,
+) -> None:
+    """Position with x=None/y=None is exempt if it has its own absolute sub-seq grid."""
+    seq = useq.MDASequence(
+        stage_positions=[
+            useq.Position(x=1, y=2, z=3),
+            useq.Position(
+                name="sub",
+                sequence={"grid_plan": {"top": 1, "bottom": -1, "left": 0, "right": 0}},
+            ),
+        ],
+        grid_plan=grid_plan,
+    )
+    assert len(seq.stage_positions) == 2
+
+
+@pytest.mark.parametrize("global_plan", _ABSOLUTE_GRID_PLANS)
+@pytest.mark.parametrize("sub_plan", _RELATIVE_SUB_GRID_PLANS)
+def test_position_with_xy_and_relative_sub_grid_exempt_from_absolute_global_grid(
+    global_plan: dict, sub_plan: Any
+) -> None:
+    """Position with x/y + relative sub-grid is exempt from global abs grid x/y clearing."""
+    seq = useq.MDASequence(
+        stage_positions=[
+            useq.Position(x=1, y=2, z=3, sequence={"grid_plan": sub_plan})
+        ],
+        grid_plan=global_plan,
+    )
+    pos = seq.stage_positions[0]
+    assert pos.x == 1
+    assert pos.y == 2
+
+
+@pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
+def test_z_only_position_iterates_with_absolute_grid(grid_plan: dict) -> None:
+    """Position(x=None, y=None, z=3) iterates correctly: grid provides x/y, pos z."""
+    seq = useq.MDASequence(
+        stage_positions=[useq.Position(x=None, y=None, z=3)],
+        grid_plan=grid_plan,
+    )
+    events = list(seq)
+    assert len(events) > 0
+    for event in events:
+        assert event.x_pos is not None
+        assert event.y_pos is not None
+        assert event.z_pos == 3.0

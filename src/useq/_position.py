@@ -64,6 +64,8 @@ class PositionBase(MutableModel):
         kwargs = {**self.model_dump(), "x": x, "y": y, "z": z, "name": name}
         return type(self).model_construct(**kwargs)  # type: ignore [return-value]
 
+    __radd__ = __add__
+
     def __round__(self, ndigits: "SupportsIndex | None" = None) -> "Self":
         """Round the position to the given number of decimal places."""
         kwargs = {
@@ -91,24 +93,35 @@ class PositionBase(MutableModel):
 
     @model_validator(mode="after")
     def _validate_position(self) -> "Self":
-        # x and y should not be set when using an absolute grid plan.
-        if (
-            (self.x is not None or self.y is not None)
-            and self.sequence is not None
-            and self.sequence.grid_plan is not None
-            and not self.sequence.grid_plan.is_relative
-        ):
+        if self.sequence is not None and self.sequence.grid_plan is not None:
             grid = self.sequence.grid_plan
-            warnings.warn(
-                f"Position x={self.x!r}, y={self.y!r} is ignored when a position "
-                f"sequence uses an absolute grid plan ({type(grid).__name__}). "
-                "Set x=None, y=None on the position to silence this warning. "
-                "In a future version this will raise an error.",
-                UserWarning,
-                stacklevel=2,
-            )
-            object.__setattr__(self, "x", None)
-            object.__setattr__(self, "y", None)
+            if not getattr(self, "is_relative", False):
+                if not grid.is_relative:
+                    # x/y are meaningless with an absolute sub-grid (the grid defines
+                    # them). Warn and clear.
+                    if self.x is not None or self.y is not None:
+                        warnings.warn(
+                            f"Position x={self.x!r}, y={self.y!r} is ignored when a "
+                            f"position sequence uses an absolute grid plan "
+                            f"({type(grid).__name__}). "
+                            "Set x=None, y=None on the position to silence this "
+                            "warning. In a future version this will raise an error.",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        object.__setattr__(self, "x", None)
+                        object.__setattr__(self, "y", None)
+                else:
+                    # x/y are required with a relative sub-grid (offsets are applied
+                    # relative to the position).
+                    if self.x is None or self.y is None:
+                        raise ValueError(
+                            f"Position x={self.x!r}, y={self.y!r} has no defined x/y "
+                            f"coordinates. When a position sequence uses a relative "
+                            f"grid plan ({type(grid).__name__}), the position must "
+                            "provide x and y because the grid offsets are applied "
+                            "relative to the position."
+                        )
         return self
 
 

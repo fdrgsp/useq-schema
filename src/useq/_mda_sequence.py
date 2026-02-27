@@ -19,7 +19,11 @@ from useq._grid import MultiPointPlan  # noqa: TC001
 from useq._hardware_autofocus import AnyAutofocusPlan, AxesBasedAF
 from useq._iter_sequence import iter_sequence
 from useq._plate import WellPlatePlan
-from useq._position import Position, PositionBase
+from useq._position import (
+    Position,
+    PositionBase,
+    RelativePosition,  # only for isinstance rejection
+)
 from useq._time import AnyTimePlan  # noqa: TC001
 from useq._utils import TimeEstimate, estimate_sequence_duration
 from useq._z import AnyZPlan  # noqa: TC001
@@ -255,11 +259,17 @@ class MDASequence(UseqModel):
 
         positions = []
         for v in value:
+            if isinstance(v, RelativePosition):
+                raise ValueError(
+                    "RelativePosition cannot be used in stage_positions. "
+                    "Use Position (AbsolutePosition) instead. For z-only "
+                    "positions, use Position(x=None, y=None, z=<value>)."
+                )
             if isinstance(v, Position):
                 positions.append(v)
             elif isinstance(v, dict):
                 positions.append(Position(**v))
-            elif isinstance(v, (np.ndarray, tuple)):
+            elif isinstance(v, np.ndarray | tuple):
                 x, *v = v
                 y, *v = v or (None,)
                 z = v[0] if v else None
@@ -270,7 +280,7 @@ class MDASequence(UseqModel):
 
     @field_validator("time_plan", mode="before")
     def _validate_time_plan(cls, v: Any) -> dict | None:
-        return {"phases": v} if isinstance(v, (tuple, list)) else v or None
+        return {"phases": v} if isinstance(v, tuple | list) else v or None
 
     @field_validator("axis_order", mode="before")
     def _validate_axis_order(cls, v: Any) -> tuple[str, ...]:
@@ -307,18 +317,15 @@ class MDASequence(UseqModel):
                         "keep_shutter_open_across cannot currently be set on a "
                         "Position sequence"
                     )
-            # it's invalid to have stage positions with x/y coordinates
-            # when using a global absolute grid plan
+
+            # When using a global absolute grid plan, position x/y are
+            # ignored (the grid defines x/y). Warn (for now) and clear them.
             if self.grid_plan is not None and not self.grid_plan.is_relative:
-                new_positions: list[Position] = []
-                modified = False
                 for p in self.stage_positions:
-                    # Positions that have their own grid plan are exempt from this
-                    # warning, since their local grid plans will override the global one
-                    # and they are already validated to be internally consistent.
-                    if (p.x is not None or p.y is not None) and (
-                        p.sequence is None or p.sequence.grid_plan is None
-                    ):
+                    # Positions with their own grid plan are exempt
+                    if p.sequence is not None and p.sequence.grid_plan is not None:
+                        continue
+                    if p.x is not None or p.y is not None:
                         grid_plan_type = type(self.grid_plan).__name__
                         warn(
                             f"Position x={p.x!r}, y={p.y!r} is ignored when using a "
@@ -328,11 +335,27 @@ class MDASequence(UseqModel):
                             UserWarning,
                             stacklevel=2,
                         )
-                        p = p.model_copy(update={"x": None, "y": None})
-                        modified = True
-                    new_positions.append(p)
-                if modified:
-                    object.__setattr__(self, "stage_positions", tuple(new_positions))
+                        object.__setattr__(p, "x", None)
+                        object.__setattr__(p, "y", None)
+
+            # When using a global relative grid plan, positions must have
+            # concrete x/y (the grid offsets are added to the position).
+            # Exception: positions with their own absolute sub-sequence grid.
+            if self.grid_plan is not None and self.grid_plan.is_relative:
+                for p in self.stage_positions:
+                    if p.x is None or p.y is None:
+                        has_own_absolute_grid = (
+                            p.sequence is not None
+                            and p.sequence.grid_plan is not None
+                            and not p.sequence.grid_plan.is_relative
+                        )
+                        if not has_own_absolute_grid:
+                            raise ValueError(
+                                f"Position x={p.x!r}, y={p.y!r} has no defined x/y "
+                                "coordinates. When using a relative grid plan, all "
+                                "stage positions must provide x and y because the "
+                                "grid offsets are applied relative to the position."
+                            )
         return self
 
     def __eq__(self, other: Any) -> bool:
