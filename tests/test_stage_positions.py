@@ -254,6 +254,38 @@ def test_position_with_xy_and_relative_sub_grid_exempt_from_absolute_global_grid
 
 
 @pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
+def test_absolute_grid_warns_only_positions_with_xy(grid_plan: dict) -> None:
+    """With a global absolute grid, only positions that have x/y produce a warning."""
+    with pytest.warns(UserWarning) as record:
+        seq = useq.MDASequence(
+            stage_positions=[(1, 2, 3), (None, None, 5)],
+            grid_plan=grid_plan,
+        )
+    # exactly one "is ignored" warning: only the first position had x/y
+    xy_warns = [w for w in record if "is ignored when using" in str(w.message)]
+    assert len(xy_warns) == 1
+    assert seq.stage_positions[0].x is None
+    assert seq.stage_positions[0].y is None
+    assert seq.stage_positions[0].z == 3
+    assert seq.stage_positions[1].x is None  # was already None, no warning
+    assert seq.stage_positions[1].y is None
+    assert seq.stage_positions[1].z == 5
+
+
+@pytest.mark.parametrize("grid_plan", _RELATIVE_GRID_PLANS)
+def test_relative_grid_raises_if_any_position_missing_xy(grid_plan: dict) -> None:
+    """With a relative global grid, a ValueError is raised if any position lacks x/y."""
+    with pytest.raises(ValueError, match="has no defined x/y coordinates"):
+        useq.MDASequence(
+            stage_positions=[
+                useq.Position(x=1, y=2, z=0),
+                useq.Position(x=None, y=None, z=3),
+            ],
+            grid_plan=grid_plan,
+        )
+
+
+@pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
 def test_z_only_position_iterates_with_absolute_grid(grid_plan: dict) -> None:
     """Position(x=None, y=None, z=3) iterates correctly: grid provides x/y, pos z."""
     seq = useq.MDASequence(

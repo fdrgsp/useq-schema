@@ -323,20 +323,20 @@ class MDASequence(UseqModel):
                 new_positions = list(self.stage_positions)
                 modified = False
                 for i, p in enumerate(new_positions):
-                    has_own_grid = (
-                        p.sequence is not None and p.sequence.grid_plan is not None
-                    )
                     if not self.grid_plan.is_relative:
                         # Absolute global grid: position x/y are ignored (the
                         # grid defines them). Warn (for now) and clear them.
+                        has_own_grid = (
+                            p.sequence is not None and p.sequence.grid_plan is not None
+                        )
                         if not has_own_grid and (p.x is not None or p.y is not None):
+                            grid_plan_type = type(self.grid_plan).__name__
                             warn(
                                 f"Position x={p.x!r}, y={p.y!r} is ignored when "
                                 f"using a global absolute grid plan "
-                                f"({type(self.grid_plan).__name__}). "
-                                "Set x=None, y=None on the position to silence "
-                                "this warning. In a future version this will "
-                                "raise an error.",
+                                f"({grid_plan_type}). Set x=None, y=None on the "
+                                "position to silence this warning. In a future version "
+                                "this will raise an error.",
                                 UserWarning,
                                 stacklevel=2,
                             )
