@@ -81,12 +81,12 @@ def test_position_none_xy_rejected_with_relative_sub_sequence_grid(
 
 
 def test_add_with_none_coordinates() -> None:
-    """__add__ uses the other's value when self coordinate is None."""
+    """__add__ preserves None when self coordinate is None (no fallback to other)."""
     pos = useq.Position(x=None, y=None, z=3)
     rel = useq.RelativePosition(x=5, y=10, z=0)
     result = pos + rel
-    assert result.x == 5
-    assert result.y == 10
+    assert result.x is None
+    assert result.y is None
     assert result.z == 3
 
 
