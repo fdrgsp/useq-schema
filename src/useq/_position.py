@@ -80,7 +80,7 @@ class PositionBase(MutableModel):
     @model_validator(mode="before")
     @classmethod
     def _cast(cls, value: Any) -> Any:
-        if isinstance(value, (np.ndarray, tuple)):
+        if isinstance(value, np.ndarray | tuple):
             x = y = z = None
             if len(value) > 0:
                 x = value[0]
@@ -91,49 +91,7 @@ class PositionBase(MutableModel):
             value = {"x": x, "y": y, "z": z}
         return value
 
-    @model_validator(mode="after")
-    def _validate_position(self) -> "Self":
-        if self.sequence is not None and self.sequence.grid_plan is not None:
-            grid = self.sequence.grid_plan
-            if not getattr(self, "is_relative", False):
-                if not grid.is_relative:
-                    # x/y are meaningless with an absolute sub-grid (the grid defines
-                    # them). Warn and clear.
-                    if self.x is not None or self.y is not None:
-                        warnings.warn(
-                            f"Position x={self.x!r}, y={self.y!r} is ignored when a "
-                            f"position sequence uses an absolute grid plan "
-                            f"({type(grid).__name__}). "
-                            "Set x=None, y=None on the position to silence this "
-                            "warning. In a future version this will raise an error.",
-                            UserWarning,
-                            stacklevel=2,
-                        )
-                        object.__setattr__(self, "x", None)
-                        object.__setattr__(self, "y", None)
-                else:
-                    # x/y are required with a relative sub-grid (offsets are applied
-                    # relative to the position).
-                    if self.x is None or self.y is None:
-                        raise ValueError(
-                            f"Position x={self.x!r}, y={self.y!r} has no defined x/y "
-                            f"coordinates. When a position sequence uses a relative "
-                            f"grid plan ({type(grid).__name__}), the position must "
-                            "provide x and y because the grid offsets are applied "
-                            "relative to the position."
-                        )
-        return self
 
-
-class AbsolutePosition(PositionBase, FrozenModel):
-    """An absolute position in 3D space."""
-
-    @property
-    def is_relative(self) -> bool:
-        return False
-
-
-Position = AbsolutePosition  # for backwards compatibility
 PositionT = TypeVar("PositionT", bound=PositionBase)
 
 
@@ -162,6 +120,50 @@ class _MultiPointPlan(MutableModel, Generic[PositionT]):
             rect = (self.fov_width, self.fov_height)
 
         return plot_points(self, rect_size=rect, show=show)
+
+
+class AbsolutePosition(PositionBase, FrozenModel):
+    """An absolute position in 3D space."""
+
+    @property
+    def is_relative(self) -> bool:
+        return False
+
+    @model_validator(mode="after")
+    def _validate_position(self) -> "Self":
+        if self.sequence is None or self.sequence.grid_plan is None:
+            return self
+        grid = self.sequence.grid_plan
+        if not grid.is_relative:
+            # x/y are meaningless with an absolute sub-grid (the grid defines
+            # them). Warn and clear.
+            if self.x is not None or self.y is not None:
+                warnings.warn(
+                    f"Position x={self.x!r}, y={self.y!r} is ignored when a "
+                    f"position sequence uses an absolute grid plan "
+                    f"({type(grid).__name__}). "
+                    "Set x=None, y=None on the position to silence this "
+                    "warning. In a future version this will raise an error.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                object.__setattr__(self, "x", None)
+                object.__setattr__(self, "y", None)
+        else:
+            # x/y are required with a relative sub-grid (offsets are applied
+            # relative to the position).
+            if self.x is None or self.y is None:
+                raise ValueError(
+                    f"Position x={self.x!r}, y={self.y!r} has no defined x/y "
+                    f"coordinates. When a position sequence uses a relative "
+                    f"grid plan ({type(grid).__name__}), the position must "
+                    "provide x and y because the grid offsets are applied "
+                    "relative to the position."
+                )
+        return self
+
+
+Position = AbsolutePosition
 
 
 class RelativePosition(PositionBase, _MultiPointPlan["RelativePosition"]):

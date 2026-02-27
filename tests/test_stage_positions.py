@@ -172,6 +172,20 @@ def test_sub_sequence_absolute_grid_warns_and_clears_xy(grid_plan: dict) -> None
     assert pos.z == 3.0
 
 
+def test_warns_global_abs_grid_does_not_mutate_original_position() -> None:
+    """Clearing x/y for a global absolute grid must not mutate the original Position."""
+    pos = useq.Position(x=1, y=2, z=3)
+    with pytest.warns(UserWarning, match="is ignored when using"):
+        seq = useq.MDASequence(
+            stage_positions=[pos],
+            grid_plan={"top": 1, "bottom": -1, "left": 0, "right": 0},
+        )
+    assert pos.x == 1  # original must be untouched
+    assert pos.y == 2
+    assert seq.stage_positions[0].x is None  # sequence view is updated
+    assert seq.stage_positions[0].y is None
+
+
 def test_relative_position_rejected_in_stage_positions() -> None:
     """RelativePosition is always rejected in stage_positions."""
     with pytest.raises(Exception, match="RelativePosition cannot be used"):

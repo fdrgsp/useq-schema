@@ -318,44 +318,51 @@ class MDASequence(UseqModel):
                         "Position sequence"
                     )
 
-            # When using a global absolute grid plan, position x/y are
-            # ignored (the grid defines x/y). Warn (for now) and clear them.
-            if self.grid_plan is not None and not self.grid_plan.is_relative:
-                for p in self.stage_positions:
-                    # Positions with their own grid plan are exempt
-                    if p.sequence is not None and p.sequence.grid_plan is not None:
-                        continue
-                    if p.x is not None or p.y is not None:
-                        grid_plan_type = type(self.grid_plan).__name__
-                        warn(
-                            f"Position x={p.x!r}, y={p.y!r} is ignored when using a "
-                            f"global absolute grid plan ({grid_plan_type}). "
-                            "Set x=None, y=None on the position to silence this "
-                            "warning. In a future version this will raise an error.",
-                            UserWarning,
-                            stacklevel=2,
-                        )
-                        object.__setattr__(p, "x", None)
-                        object.__setattr__(p, "y", None)
-
-            # When using a global relative grid plan, positions must have
-            # concrete x/y (the grid offsets are added to the position).
-            # Exception: positions with their own absolute sub-sequence grid.
-            if self.grid_plan is not None and self.grid_plan.is_relative:
-                for p in self.stage_positions:
-                    if p.x is None or p.y is None:
+            # When using a global grid plan, validate positions against it.
+            if self.grid_plan is not None:
+                new_positions = list(self.stage_positions)
+                modified = False
+                for i, p in enumerate(new_positions):
+                    has_own_grid = (
+                        p.sequence is not None and p.sequence.grid_plan is not None
+                    )
+                    if not self.grid_plan.is_relative:
+                        # Absolute global grid: position x/y are ignored (the
+                        # grid defines them). Warn (for now) and clear them.
+                        if not has_own_grid and (p.x is not None or p.y is not None):
+                            warn(
+                                f"Position x={p.x!r}, y={p.y!r} is ignored when "
+                                f"using a global absolute grid plan "
+                                f"({type(self.grid_plan).__name__}). "
+                                "Set x=None, y=None on the position to silence "
+                                "this warning. In a future version this will "
+                                "raise an error.",
+                                UserWarning,
+                                stacklevel=2,
+                            )
+                            new_positions[i] = p.model_copy(
+                                update={"x": None, "y": None}
+                            )
+                            modified = True
+                    else:
+                        # Relative global grid: positions must have x/y (the
+                        # grid offsets are added to the position).
+                        # Exception: positions with their own absolute sub-seq grid.
                         has_own_absolute_grid = (
                             p.sequence is not None
                             and p.sequence.grid_plan is not None
                             and not p.sequence.grid_plan.is_relative
                         )
-                        if not has_own_absolute_grid:
+                        if not has_own_absolute_grid and (p.x is None or p.y is None):
                             raise ValueError(
-                                f"Position x={p.x!r}, y={p.y!r} has no defined x/y "
-                                "coordinates. When using a relative grid plan, all "
-                                "stage positions must provide x and y because the "
-                                "grid offsets are applied relative to the position."
+                                f"Position x={p.x!r}, y={p.y!r} has no defined "
+                                "x/y coordinates. When using a relative grid "
+                                "plan, all stage positions must provide x and y "
+                                "because the grid offsets are applied relative "
+                                "to the position."
                             )
+                if modified:
+                    object.__setattr__(self, "stage_positions", tuple(new_positions))
         return self
 
     def __eq__(self, other: Any) -> bool:
