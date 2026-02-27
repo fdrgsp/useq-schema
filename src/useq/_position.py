@@ -92,36 +92,6 @@ class PositionBase(MutableModel):
         return value
 
 
-PositionT = TypeVar("PositionT", bound=PositionBase)
-
-
-class _MultiPointPlan(MutableModel, Generic[PositionT]):
-    """Any plan that yields multiple positions."""
-
-    fov_width: float | None = None
-    fov_height: float | None = None
-
-    @property
-    def is_relative(self) -> bool:
-        return True
-
-    def __iter__(self) -> Iterator[PositionT]:  # type: ignore [override]
-        raise NotImplementedError("This method must be implemented by subclasses.")
-
-    def num_positions(self) -> int:
-        raise NotImplementedError("This method must be implemented by subclasses.")
-
-    def plot(self, *, show: bool = True) -> "Axes":
-        """Plot the positions in the plan."""
-        from useq._plot import plot_points
-
-        rect = None
-        if self.fov_width is not None and self.fov_height is not None:
-            rect = (self.fov_width, self.fov_height)
-
-        return plot_points(self, rect_size=rect, show=show)
-
-
 class AbsolutePosition(PositionBase, FrozenModel):
     """An absolute position in 3D space."""
 
@@ -164,6 +134,34 @@ class AbsolutePosition(PositionBase, FrozenModel):
 
 
 Position = AbsolutePosition
+PositionT = TypeVar("PositionT", bound=PositionBase)
+
+
+class _MultiPointPlan(MutableModel, Generic[PositionT]):
+    """Any plan that yields multiple positions."""
+
+    fov_width: float | None = None
+    fov_height: float | None = None
+
+    @property
+    def is_relative(self) -> bool:
+        return True
+
+    def __iter__(self) -> Iterator[PositionT]:  # type: ignore [override]
+        raise NotImplementedError("This method must be implemented by subclasses.")
+
+    def num_positions(self) -> int:
+        raise NotImplementedError("This method must be implemented by subclasses.")
+
+    def plot(self, *, show: bool = True) -> "Axes":
+        """Plot the positions in the plan."""
+        from useq._plot import plot_points
+
+        rect = None
+        if self.fov_width is not None and self.fov_height is not None:
+            rect = (self.fov_width, self.fov_height)
+
+        return plot_points(self, rect_size=rect, show=show)
 
 
 class RelativePosition(PositionBase, _MultiPointPlan["RelativePosition"]):
