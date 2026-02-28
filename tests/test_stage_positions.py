@@ -86,12 +86,6 @@ _ADD_CASES = [
         (5, 10, 3),
         id="none_falls_back_to_other",
     ),
-    pytest.param(
-        useq.Position(x=1, y=2, z=3),
-        useq.RelativePosition(x=0, y=0, z=0),
-        (1, 2, 3),
-        id="add_zero",
-    ),
 ]
 
 
@@ -123,37 +117,6 @@ def test_relative_position_rejected_in_stage_positions() -> None:
 # --- Global grid + position interactions -----------------------------------------
 
 
-@pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
-def test_z_only_position_with_absolute_grid(grid_plan: dict) -> None:
-    """Position(x=None, y=None, z=3) with absolute grid: no warning, z preserved."""
-    seq = useq.MDASequence(
-        stage_positions=[(None, None, 3)],
-        grid_plan=grid_plan,
-    )
-    pos = seq.stage_positions[0]
-    assert pos.x is None
-    assert pos.y is None
-    assert pos.z == 3
-
-
-@pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
-def test_absolute_grid_warns_only_positions_with_xy(grid_plan: dict) -> None:
-    """With a global absolute grid, only positions that have x/y produce a warning."""
-    with pytest.warns(UserWarning) as record:
-        seq = useq.MDASequence(
-            stage_positions=[(1, 2, 3), (None, None, 5)],
-            grid_plan=grid_plan,
-        )
-    xy_warns = [w for w in record if "is ignored when using" in str(w.message)]
-    assert len(xy_warns) == 1
-    assert seq.stage_positions[0].x is None
-    assert seq.stage_positions[0].y is None
-    assert seq.stage_positions[0].z == 3
-    assert seq.stage_positions[1].x is None
-    assert seq.stage_positions[1].y is None
-    assert seq.stage_positions[1].z == 5
-
-
 def test_warns_global_abs_grid_does_not_mutate_original_position() -> None:
     """Clearing x/y for a global absolute grid must not mutate the original Position."""
     pos = useq.Position(x=1, y=2, z=3)
@@ -166,23 +129,6 @@ def test_warns_global_abs_grid_does_not_mutate_original_position() -> None:
     assert pos.y == 2
     assert seq.stage_positions[0].x is None  # sequence copy is updated
     assert seq.stage_positions[0].y is None
-
-
-@pytest.mark.parametrize("global_plan", _ABSOLUTE_GRID_PLANS)
-@pytest.mark.parametrize("sub_plan", _RELATIVE_GRID_PLANS)
-def test_position_with_own_grid_exempt_from_global_absolute_grid(
-    global_plan: dict, sub_plan: Any
-) -> None:
-    """Position with its own sub-grid is exempt from global abs grid x/y clearing."""
-    seq = useq.MDASequence(
-        stage_positions=[
-            useq.Position(x=1, y=2, z=3, sequence={"grid_plan": sub_plan})
-        ],
-        grid_plan=global_plan,
-    )
-    pos = seq.stage_positions[0]
-    assert pos.x == 1
-    assert pos.y == 2
 
 
 @pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)

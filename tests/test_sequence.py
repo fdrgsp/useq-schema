@@ -89,7 +89,7 @@ def test_axis_order_errors() -> None:
     MDASequence(
         stage_positions=[
             {"z": 0},
-            {"x": 0, "y": 0, "sequence": {"grid_plan": {"rows": 2, "columns": 2}}},
+            {"sequence": {"grid_plan": {"rows": 2, "columns": 2}}},
             {
                 "sequence": {
                     "grid_plan": {"top": 1, "bottom": -1, "left": 0, "right": 0}

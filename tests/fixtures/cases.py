@@ -1128,8 +1128,6 @@ KEEP_SHUTTER_CASES: list[MDATestCase] = [
             channels=["DAPI", "FITC"],
             stage_positions=[
                 Position(
-                    x=0,
-                    y=0,
                     sequence=MDASequence(grid_plan=GridRowsColumns(rows=2, columns=2)),
                 )
             ],
