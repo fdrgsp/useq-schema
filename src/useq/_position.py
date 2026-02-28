@@ -53,12 +53,18 @@ class PositionBase(MutableModel):
         """Add two positions together to create a new position."""
         if not isinstance(other, RelativePosition):  # pragma: no cover
             return NotImplemented
-        if (x := self.x) is not None and other.x is not None:
-            x += other.x
-        if (y := self.y) is not None and other.y is not None:
-            y += other.y
-        if (z := self.z) is not None and other.z is not None:
-            z += other.z
+        if self.x is not None and other.x is not None:
+            x = self.x + other.x
+        else:
+            x = self.x if other.x is None else other.x
+        if self.y is not None and other.y is not None:
+            y = self.y + other.y
+        else:
+            y = self.y if other.y is None else other.y
+        if self.z is not None and other.z is not None:
+            z = self.z + other.z
+        else:
+            z = self.z if other.z is None else other.z
         if (name := self.name) and other.name:
             name = f"{name}_{other.name}"
         kwargs = {**self.model_dump(), "x": x, "y": y, "z": z, "name": name}
