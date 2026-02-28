@@ -10,7 +10,6 @@ from pydantic import BaseModel, ValidationError
 from useq import (
     MDAEvent,
     MDASequence,
-    Position,
     TIntervalDuration,
     ZAboveBelow,
     ZRangeAround,
@@ -117,10 +116,8 @@ def test_axis_order_errors() -> None:
             stage_positions=[{"x": 10, "y": 20}],
             grid_plan={"top": 1, "bottom": -1, "left": 0, "right": 0},
         )
-    pos = seq.stage_positions[0]
-    assert isinstance(pos, Position)
-    assert pos.x is None
-    assert pos.y is None
+    assert seq.stage_positions[0].x is None
+    assert seq.stage_positions[0].y is None
     # --- GridFromPolygon ---
     with pytest.warns(
         UserWarning, match="is ignored when using a global absolute grid plan"
@@ -133,10 +130,8 @@ def test_axis_order_errors() -> None:
                 "fov_height": 2,
             },
         )
-    pos = seq.stage_positions[0]
-    assert isinstance(pos, Position)
-    assert pos.x is None
-    assert pos.y is None
+    assert seq.stage_positions[0].x is None
+    assert seq.stage_positions[0].y is None
 
     # no warning when x/y are None with absolute grids
     MDASequence(

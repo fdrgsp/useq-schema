@@ -313,7 +313,6 @@ class MDASequence(UseqModel):
                         "keep_shutter_open_across cannot currently be set on a "
                         "Position sequence"
                     )
-
             # it's invalid to have stage positions with x/y coordinates
             # when using a global absolute grid plan
             if self.grid_plan is not None and not self.grid_plan.is_relative:
