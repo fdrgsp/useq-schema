@@ -340,23 +340,6 @@ class MDASequence(UseqModel):
                                 update={"x": None, "y": None}
                             )
                             modified = True
-                    else:
-                        # Relative global grid: positions must have x/y (the
-                        # grid offsets are added to the position).
-                        # Exception: positions with their own absolute sub-seq grid.
-                        has_own_absolute_grid = (
-                            p.sequence is not None
-                            and p.sequence.grid_plan is not None
-                            and not p.sequence.grid_plan.is_relative
-                        )
-                        if not has_own_absolute_grid and (p.x is None or p.y is None):
-                            raise ValueError(
-                                f"Position x={p.x!r}, y={p.y!r} has no defined "
-                                "x/y coordinates. When using a relative grid "
-                                "plan, all stage positions must provide x and y "
-                                "because the grid offsets are applied relative "
-                                "to the position."
-                            )
                 if modified:
                     object.__setattr__(self, "stage_positions", tuple(new_positions))
         return self

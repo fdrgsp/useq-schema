@@ -119,17 +119,7 @@ class AbsolutePosition(PositionBase, FrozenModel):
                 )
                 object.__setattr__(self, "x", None)
                 object.__setattr__(self, "y", None)
-        else:
-            # x/y are required with a relative sub-grid (offsets are applied
-            # relative to the position).
-            if self.x is None or self.y is None:
-                raise ValueError(
-                    f"Position x={self.x!r}, y={self.y!r} has no defined x/y "
-                    f"coordinates. When a position sequence uses a relative "
-                    f"grid plan ({type(grid).__name__}), the position must "
-                    "provide x and y because the grid offsets are applied "
-                    "relative to the position."
-                )
+
         return self
 
 

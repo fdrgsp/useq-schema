@@ -72,12 +72,14 @@ def test_position_no_warn_on_relative_sub_sequence_grid(sub_plan: Any) -> None:
 
 
 @pytest.mark.parametrize("sub_plan", _RELATIVE_SUB_GRID_PLANS)
-def test_position_none_xy_rejected_with_relative_sub_sequence_grid(
+def test_position_none_xy_allowed_with_relative_sub_sequence_grid(
     sub_plan: Any,
 ) -> None:
-    """Position with x=None or y=None raises when sub-sequence uses a relative grid."""
-    with pytest.raises(Exception, match="has no defined x/y coordinates"):
-        useq.Position(x=None, y=None, z=3, sequence={"grid_plan": sub_plan})
+    """Position with x=None or y=None is allowed when sub-sequence uses a relative grid."""
+    pos = useq.Position(x=None, y=None, z=3, sequence={"grid_plan": sub_plan})
+    assert pos.x is None
+    assert pos.y is None
+    assert pos.z == 3
 
 
 def test_add_with_none_coordinates() -> None:
@@ -209,13 +211,16 @@ _RELATIVE_GRID_PLANS = [
 
 
 @pytest.mark.parametrize("grid_plan", _RELATIVE_GRID_PLANS)
-def test_position_none_xy_rejected_with_relative_grid(grid_plan: dict) -> None:
-    """Position with x=None or y=None raises when the global grid plan is relative."""
-    with pytest.raises(Exception, match="has no defined x/y coordinates"):
-        useq.MDASequence(
-            stage_positions=[(None, None, 3)],
-            grid_plan=grid_plan,
-        )
+def test_position_none_xy_allowed_with_relative_grid(grid_plan: dict) -> None:
+    """Position with x=None or y=None is allowed when global grid is relative."""
+    seq = useq.MDASequence(
+        stage_positions=[(None, None, 3)],
+        grid_plan=grid_plan,
+    )
+    pos = seq.stage_positions[0]
+    assert pos.x is None
+    assert pos.y is None
+    assert pos.z == 3
 
 
 @pytest.mark.parametrize("grid_plan", _RELATIVE_GRID_PLANS)
@@ -273,16 +278,19 @@ def test_absolute_grid_warns_only_positions_with_xy(grid_plan: dict) -> None:
 
 
 @pytest.mark.parametrize("grid_plan", _RELATIVE_GRID_PLANS)
-def test_relative_grid_raises_if_any_position_missing_xy(grid_plan: dict) -> None:
-    """With a relative global grid, a ValueError is raised if any position lacks x/y."""
-    with pytest.raises(ValueError, match="has no defined x/y coordinates"):
-        useq.MDASequence(
-            stage_positions=[
-                useq.Position(x=1, y=2, z=0),
-                useq.Position(x=None, y=None, z=3),
-            ],
-            grid_plan=grid_plan,
-        )
+def test_relative_grid_allows_missing_xy(grid_plan: dict) -> None:
+    """With a relative global grid, missing x/y are allowed (stay None)."""
+    seq = useq.MDASequence(
+        stage_positions=[
+            useq.Position(x=1, y=2, z=0),
+            useq.Position(x=None, y=None, z=3),
+        ],
+        grid_plan=grid_plan,
+    )
+    assert seq.stage_positions[0].x == 1
+    assert seq.stage_positions[0].y == 2
+    assert seq.stage_positions[1].x is None
+    assert seq.stage_positions[1].y is None
 
 
 @pytest.mark.parametrize("grid_plan", _ABSOLUTE_GRID_PLANS)
