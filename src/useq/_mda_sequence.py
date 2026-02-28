@@ -258,8 +258,8 @@ class MDASequence(UseqModel):
             if isinstance(v, RelativePosition):
                 raise ValueError(
                     "RelativePosition cannot be used in stage_positions. "
-                    "Use Position (AbsolutePosition) instead. For z-only "
-                    "positions, use Position(x=None, y=None, z=<value>)."
+                    "Use AbsolutePosition (Position)) instead. For z-only "
+                    "positions, use Position(z=<value>)."
                 )
             if isinstance(v, Position):
                 positions.append(v)
