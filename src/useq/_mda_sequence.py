@@ -265,7 +265,7 @@ class MDASequence(UseqModel):
                 positions.append(v)
             elif isinstance(v, dict):
                 positions.append(Position(**v))
-            elif isinstance(v, np.ndarray | tuple):
+            elif isinstance(v, (np.ndarray, tuple)):
                 x, *v = v
                 y, *v = v or (None,)
                 z = v[0] if v else None
@@ -276,7 +276,7 @@ class MDASequence(UseqModel):
 
     @field_validator("time_plan", mode="before")
     def _validate_time_plan(cls, v: Any) -> dict | None:
-        return {"phases": v} if isinstance(v, tuple | list) else v or None
+        return {"phases": v} if isinstance(v, (tuple, list)) else v or None
 
     @field_validator("axis_order", mode="before")
     def _validate_axis_order(cls, v: Any) -> tuple[str, ...]:
@@ -314,32 +314,30 @@ class MDASequence(UseqModel):
                         "Position sequence"
                     )
 
-            # When using a global grid plan, validate positions against it.
-            if self.grid_plan is not None:
-                new_positions = list(self.stage_positions)
+            # it's invalid to have stage positions with x/y coordinates
+            # when using a global absolute grid plan
+            if self.grid_plan is not None and not self.grid_plan.is_relative:
+                new_positions: list[Position] = []
                 modified = False
-                for i, p in enumerate(new_positions):
-                    if not self.grid_plan.is_relative:
-                        # Absolute global grid: position x/y are ignored (the
-                        # grid defines them). Warn (for now) and clear them.
-                        has_own_grid = (
-                            p.sequence is not None and p.sequence.grid_plan is not None
+                for p in self.stage_positions:
+                    # Positions that have their own grid plan are exempt from this
+                    # warning, since their local grid plans will override the global one
+                    # and they are already validated to be internally consistent.
+                    if (p.x is not None or p.y is not None) and (
+                        p.sequence is None or p.sequence.grid_plan is None
+                    ):
+                        grid_plan_type = type(self.grid_plan).__name__
+                        warn(
+                            f"Position x={p.x!r}, y={p.y!r} is ignored when using a "
+                            f"global absolute grid plan ({grid_plan_type}). "
+                            "Set x=None, y=None on the position to silence this "
+                            "warning. In a future version this will raise an error.",
+                            UserWarning,
+                            stacklevel=2,
                         )
-                        if not has_own_grid and (p.x is not None or p.y is not None):
-                            grid_plan_type = type(self.grid_plan).__name__
-                            warn(
-                                f"Position x={p.x!r}, y={p.y!r} is ignored when "
-                                f"using a global absolute grid plan "
-                                f"({grid_plan_type}). Set x=None, y=None on the "
-                                "position to silence this warning. In a future version "
-                                "this will raise an error.",
-                                UserWarning,
-                                stacklevel=2,
-                            )
-                            new_positions[i] = p.model_copy(
-                                update={"x": None, "y": None}
-                            )
-                            modified = True
+                        p = p.model_copy(update={"x": None, "y": None})
+                        modified = True
+                    new_positions.append(p)
                 if modified:
                     object.__setattr__(self, "stage_positions", tuple(new_positions))
         return self

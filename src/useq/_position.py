@@ -86,7 +86,7 @@ class PositionBase(MutableModel):
     @model_validator(mode="before")
     @classmethod
     def _cast(cls, value: Any) -> Any:
-        if isinstance(value, np.ndarray | tuple):
+        if isinstance(value, (np.ndarray, tuple)):
             x = y = z = None
             if len(value) > 0:
                 x = value[0]
@@ -115,11 +115,10 @@ class AbsolutePosition(PositionBase, FrozenModel):
             # them). Warn and clear.
             if self.x is not None or self.y is not None:
                 warnings.warn(
-                    f"Position x={self.x!r}, y={self.y!r} is ignored when a "
-                    f"position sequence uses an absolute grid plan "
-                    f"({type(grid).__name__}). "
-                    "Set x=None, y=None on the position to silence this "
-                    "warning. In a future version this will raise an error.",
+                    f"Position x={self.x!r}, y={self.y!r} is ignored when a position "
+                    f"sequence uses an absolute grid plan ({type(grid).__name__}). "
+                    "Set x=None, y=None on the position to silence this warning. "
+                    "In a future version this will raise an error.",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -129,7 +128,7 @@ class AbsolutePosition(PositionBase, FrozenModel):
         return self
 
 
-Position = AbsolutePosition
+Position = AbsolutePosition  # for backwards compatibility
 PositionT = TypeVar("PositionT", bound=PositionBase)
 
 
