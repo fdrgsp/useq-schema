@@ -61,16 +61,24 @@
   "setup": null,
   "stage_positions": [
     {
+      "grid_col": null,
       "name": null,
+      "plate_col": null,
+      "plate_row": null,
       "properties": null,
+      "grid_row": null,
       "sequence": null,
       "x": 10.0,
       "y": 20.0,
       "z": null
     },
     {
+      "grid_col": null,
       "name": "test_name",
+      "plate_col": null,
+      "plate_row": null,
       "properties": null,
+      "grid_row": null,
       "sequence": {
         "autofocus_plan": null,
         "axis_order": [
@@ -105,7 +113,6 @@
           "step": 1.0
         }
       },
-      "properties": null,
       "x": 10.0,
       "y": 20.0,
       "z": 50.0
