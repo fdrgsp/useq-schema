@@ -719,10 +719,11 @@ GRID_SUBSEQ_CASES: list[MDATestCase] = [
             ],
         ),
         expected={
-            "index": genindex({"p": 1, "c": 2, "g": 2}),
+            # default axis_order is "tpgcz": g is outer, c is inner
+            "index": genindex({"p": 1, "g": 2, "c": 2}),
             "x_pos": [0.0, 0.0, 0.0, 0.0],
-            "y_pos": [0.5, -0.5, 0.5, -0.5],
-            "channel": ["Cy5", "Cy5", "FITC", "FITC"],
+            "y_pos": [0.5, 0.5, -0.5, -0.5],
+            "channel": ["Cy5", "FITC", "Cy5", "FITC"],
         },
     ),
     MDATestCase(
@@ -788,7 +789,10 @@ GRID_SUBSEQ_CASES: list[MDATestCase] = [
                 )
             ],
         ),
-        expected={"channel": ["Cy5"] * 24 + ["FITC"] * 24},
+        expected={
+            # default axis_order "tpgcz": g outer, c inner → per (t,g): Cy5×3, FITC×3
+            "channel": (["Cy5"] * 3 + ["FITC"] * 3) * 8
+        },
     ),
     MDATestCase(
         name="sub_channels_and_any_plan",
@@ -1135,9 +1139,9 @@ KEEP_SHUTTER_CASES: list[MDATestCase] = [
             ],
             keep_shutter_open_across="g",
         ),
-        # for event in seq:
-        #     assert event.keep_shutter_open != (event.index["g"] == 3)
-        predicate=ensure_shutter_behavior(expected_indices=[0, 1, 2, 4, 5, 6]),
+        # With axis_order="pgc", g is outer and c is inner; consecutive events
+        # always differ in c → keep_shutter_open_across="g" produces no open events.
+        predicate=ensure_shutter_behavior(expected_indices=[]),
     ),
 ]
 

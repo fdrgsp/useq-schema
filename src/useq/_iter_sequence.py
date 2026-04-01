@@ -160,8 +160,17 @@ def _iter_sequence(
             zip(order, item, strict=False)
         )
 
+        # If the parent's axis_order places g before some of its own axes (c, z, t),
+        # compute an enriched sub_seq that will iterate those axes *inside* the
+        # sub-sequence so the declared axis_order is respected end-to-end.
+        effective_sub_seq: MDASequence | None = None
+        if position is not None and position.sequence is not None:
+            effective_sub_seq = _enrich_sub_seq_for_g(position.sequence, sequence)
+
         # skip if necessary
-        if _should_skip(position, channel, index, sequence.z_plan):
+        if _should_skip(
+            position, channel, index, sequence.z_plan, effective_sub_seq
+        ):
             continue
 
         # build kwargs that will be passed to this MDAEvent
@@ -206,21 +215,30 @@ def _iter_sequence(
         # if a position has been declared with a sub-sequence, we recurse into it
         if position:
             if _has_axes(position.sequence):
-                # determine any relative position shifts or global overrides
-                _pos, _offsets = _position_offsets(position, event_kwargs)
-                # build overrides for this position
-                pos_overrides = MDAEventDict(sequence=sequence, **_pos)  # pyright: ignore[reportCallIssue]
-                pos_overrides["reset_event_timer"] = False
-                if position.name:
-                    pos_overrides["pos_name"] = position.name
+                # Use the enriched sub_seq if one was computed (g-axis ordering),
+                # otherwise fall back to the original position sub-sequence.
+                sub_seq = effective_sub_seq if effective_sub_seq is not None else position.sequence
 
-                sub_seq = position.sequence
-                # if the sub-sequence doe not have an autofocus plan, we override it
+                # if the sub-sequence does not have an autofocus plan, we override it
                 # with the parent sequence's autofocus plan
                 if not sub_seq.autofocus_plan:
                     sub_seq = sub_seq.model_copy(
                         update={"autofocus_plan": autofocus_plan}
                     )
+
+                # determine any relative position shifts or global overrides,
+                # using the (possibly enriched) sub_seq so offsets are correct.
+                _pos, _offsets = _position_offsets(position, event_kwargs, sub_seq)
+
+                # When using an enriched sub_seq (g-axis ordering fix), point
+                # event.sequence at the enriched sub_seq so that its z_plan is used
+                # by the autofocus z-correction logic.  Otherwise keep the parent.
+                event_seq = sub_seq if effective_sub_seq is not None else sequence
+                # build overrides for this position
+                pos_overrides = MDAEventDict(sequence=event_seq, **_pos)  # pyright: ignore[reportCallIssue]
+                pos_overrides["reset_event_timer"] = False
+                if position.name:
+                    pos_overrides["pos_name"] = position.name
 
                 # recurse into the sub-sequence
                 yield from _iter_sequence(
@@ -253,10 +271,12 @@ def _iter_sequence(
 
 
 def _position_offsets(
-    position: Position, event_kwargs: MDAEventDict
+    position: Position,
+    event_kwargs: MDAEventDict,
+    pos_seq: MDASequence | None = None,
 ) -> tuple[MDAEventDict, PositionDict]:
     """Determine shifts and position overrides for position subsequences."""
-    pos_seq = cast("MDASequence", position.sequence)
+    pos_seq = pos_seq or cast("MDASequence", position.sequence)
     overrides = MDAEventDict()
     offsets = PositionDict()
     if not pos_seq.z_plan:
@@ -305,6 +325,7 @@ def _should_skip(
     channel: Channel | None,
     index: dict[str, int],
     z_plan: AnyZPlan | None,
+    effective_position_seq: MDASequence | None = None,
 ) -> bool:
     """Return True if this event should be skipped."""
     if channel:
@@ -330,12 +351,16 @@ def _should_skip(
     # NOTE: if we ever add more plans, they will need to be explicitly added
     # https://github.com/pymmcore-plus/useq-schema/pull/85
 
+    # Use effective_position_seq (which may be enriched with parent axes) for skip
+    # decisions; fall back to the original position.sequence.
+    pos_seq = effective_position_seq if effective_position_seq is not None else position.sequence
+
     # get if sub-sequence has any plan
     plans = any(
         (
-            position.sequence.grid_plan,
-            position.sequence.z_plan,
-            position.sequence.time_plan,
+            pos_seq.grid_plan,
+            pos_seq.z_plan,
+            pos_seq.time_plan,
         )
     )
     # overwriting the *global* channel index since it is no longer relevant.
@@ -343,13 +368,86 @@ def _should_skip(
     # we skip otherwise the channel will be acquired twice. Same happens if
     # the channel IS NOT SPECIFIED but ANY plan is.
     if index.get(Axis.CHANNEL, 0) != 0:
-        if (position.sequence.channels and plans) or not plans:
+        if (pos_seq.channels and plans) or not plans:
             return True
-    if Axis.Z in index and index[Axis.Z] != 0 and position.sequence.z_plan:
+    if Axis.Z in index and index[Axis.Z] != 0 and pos_seq.z_plan:
         return True
-    if Axis.GRID in index and index[Axis.GRID] != 0 and position.sequence.grid_plan:
+    if Axis.GRID in index and index[Axis.GRID] != 0 and pos_seq.grid_plan:
         return True
     return False
+
+
+def _enrich_sub_seq_for_g(
+    sub_seq: MDASequence,
+    parent_seq: MDASequence,
+) -> MDASequence | None:
+    """Return an enriched copy of sub_seq with parent axes that fall after g.
+
+    When the parent's axis_order places g (grid) before other axes (e.g. c, z),
+    those inner axes should be iterated *inside* the sub-sequence rather than
+    by the parent's product loop.  This function injects the parent's channels,
+    z_plan, and/or time_plan into the sub-sequence and sets its axis_order to
+    match the parent's preference, so that the final event stream respects the
+    declared axis_order.
+
+    Returns None if no enrichment is needed.
+    """
+    if not sub_seq.grid_plan:
+        return None
+
+    g_idx = next(
+        (i for i, ax in enumerate(parent_seq.axis_order) if ax == Axis.GRID), None
+    )
+    if g_idx is None:
+        return None
+
+    parent_used = _used_axes(parent_seq)
+
+    # Axes declared after g in the parent's axis_order that exist in the parent
+    inner_axes = [
+        ax
+        for ax in parent_seq.axis_order[g_idx + 1 :]
+        if ax in parent_used and ax != Axis.POSITION
+    ]
+    if not inner_axes:
+        return None
+
+    updates: dict = {}
+
+    for ax in inner_axes:
+        if ax == Axis.CHANNEL and not sub_seq.channels and parent_seq.channels:
+            updates["channels"] = parent_seq.channels
+        elif ax == Axis.Z and not sub_seq.z_plan and parent_seq.z_plan:
+            updates["z_plan"] = parent_seq.z_plan
+        elif ax == Axis.TIME and not sub_seq.time_plan and parent_seq.time_plan:
+            updates["time_plan"] = parent_seq.time_plan
+
+    if not updates:
+        return None
+
+    # Build axis_order for the enriched sub_seq: include ALL axes it will have plans
+    # for (original sub_seq axes + newly injected), ordered per the parent's axis_order.
+    sub_used: set[str] = set(_used_axes(sub_seq))
+    if "channels" in updates:
+        sub_used.add(str(Axis.CHANNEL))
+    if "z_plan" in updates:
+        sub_used.add(str(Axis.Z))
+    if "time_plan" in updates:
+        sub_used.add(str(Axis.TIME))
+
+    # Primary order: follow parent's axis_order for axes the enriched sub_seq has
+    new_order = [
+        ax
+        for ax in parent_seq.axis_order
+        if ax in sub_used and ax != Axis.POSITION
+    ]
+    # Append any sub_seq axes not present in the parent's axis_order
+    for ax in sub_seq.axis_order:
+        if ax in sub_used and ax not in new_order:
+            new_order.append(ax)
+
+    updates["axis_order"] = tuple(new_order)
+    return sub_seq.model_copy(update=updates)
 
 
 def _xyzpos(

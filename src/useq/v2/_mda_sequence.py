@@ -169,7 +169,10 @@ class MDASequence(MultiAxisSequence[MDAEvent]):
     def _cast_legacy_kwargs(cls, data: Any) -> Any:
         """Cast legacy kwargs to the new pattern."""
         if isinstance(data, MDASequenceV1):
+            axis_order = list(data.axis_order)  # capture before model_dump
             data = data.model_dump(exclude_unset=True)
+            # Always include axis_order so that iteration order is preserved in v2.
+            data["axis_order"] = axis_order
         if isinstance(data, dict) and (axes := _extract_legacy_axes(data)):
             if "axes" in data:  # pragma: no cover
                 raise ValueError(
