@@ -150,6 +150,104 @@ def test_axis_order_errors() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("axis_order", "expected"),
+    [
+        ("pgc", [(0, "DAPI"), (0, "FITC"), (1, "DAPI"), (1, "FITC")]),
+        ("pcg", [(0, "DAPI"), (1, "DAPI"), (0, "FITC"), (1, "FITC")]),
+    ],
+)
+def test_main_order_applies_to_position_subsequence_axes(
+    axis_order: str, expected: list[tuple[int, str]]
+) -> None:
+    """A child grid participates in the main order without copying channels."""
+    seq = MDASequence(
+        axis_order=axis_order,
+        channels=["DAPI", "FITC"],
+        stage_positions=[{"sequence": {"grid_plan": {"rows": 1, "columns": 2}}}],
+    )
+
+    assert [(event.index["g"], event.channel.config) for event in seq] == expected
+
+
+@pytest.mark.parametrize(
+    ("child_axis", "root_axis", "axis_order"),
+    [
+        ("g", "c", "pgc"),
+        ("g", "c", "pcg"),
+        ("z", "c", "pzc"),
+        ("z", "c", "pcz"),
+        ("t", "c", "tpc"),
+        ("t", "c", "ptc"),
+        ("t", "c", "pct"),
+        ("c", "t", "cpt"),
+        ("c", "t", "ptc"),
+        ("c", "t", "pct"),
+    ],
+)
+def test_root_order_controls_axes_used_by_only_one_position(
+    child_axis: str, root_axis: str, axis_order: str
+) -> None:
+    """Every child-only axis participates in the root's sparse global order."""
+    axis_fields = {
+        "c": {"channels": ["DAPI", "FITC"]},
+        "g": {"grid_plan": {"rows": 1, "columns": 2}},
+        "t": {"time_plan": {"interval": 0, "loops": 2}},
+        "z": {"z_plan": {"range": 1, "step": 1}},
+    }
+    sequence = MDASequence(
+        axis_order=axis_order,
+        stage_positions=[
+            {"sequence": MDASequence(**axis_fields[child_axis])},
+            {},
+        ],
+        **axis_fields[root_axis],
+    )
+
+    events = list(sequence)
+    assert len(events) == 6
+
+    # Position 0 has a 2-item child axis crossed with the 2-item root axis;
+    # position 1 has no child axis and therefore contributes only 2 events.
+    expected = [
+        (child_idx, p_idx, root_idx)
+        for p_idx in range(2)
+        for child_idx in (range(2) if p_idx == 0 else (None,))
+        for root_idx in range(2)
+    ]
+    key_axes = tuple(axis_order)
+
+    def sort_key(indices: tuple[int | None, int, int]) -> tuple[int, ...]:
+        child_idx, p_idx, root_idx = indices
+        index = {child_axis: child_idx or 0, "p": p_idx, root_axis: root_idx}
+        return tuple(index[axis] for axis in key_axes)
+
+    expected.sort(key=sort_key)
+    assert [
+        (
+            event.index.get(child_axis),
+            event.index["p"],
+            event.index[root_axis],
+        )
+        for event in events
+    ] == expected
+
+
+def test_position_subsequence_order_does_not_duplicate_parent_axes() -> None:
+    seq = MDASequence(
+        axis_order="pgtc",
+        channels=["DAPI", "FITC"],
+        time_plan={"interval": 0, "loops": 2},
+        stage_positions=[{"sequence": {"grid_plan": {"rows": 1, "columns": 2}}}],
+    )
+
+    events = list(seq)
+    assert len(events) == 8
+    assert [tuple(event.index[axis] for axis in "gtc") for event in events] == [
+        (g, t, c) for g in range(2) for t in range(2) for c in range(2)
+    ]
+
+
 @pytest.mark.parametrize("cls", [MDASequence, MDAEvent])
 def test_schema(cls: BaseModel) -> None:
     schema = cls.model_json_schema()

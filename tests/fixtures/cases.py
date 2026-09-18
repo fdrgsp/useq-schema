@@ -574,31 +574,13 @@ GRID_SUBSEQ_CASES: list[MDATestCase] = [
             "index": [
                 {"t": 0, "p": 0},
                 {"t": 0, "p": 1},
-                {"t": 1, "p": 1},
-                {"t": 2, "p": 1},
-                {"t": 3, "p": 1},
-                {"t": 4, "p": 1},
                 {"t": 1, "p": 0},
-                {"t": 0, "p": 1},
                 {"t": 1, "p": 1},
                 {"t": 2, "p": 1},
                 {"t": 3, "p": 1},
                 {"t": 4, "p": 1},
             ],
-            "min_start_time": [
-                0.0,
-                0.0,
-                1.0,
-                2.0,
-                3.0,
-                4.0,
-                1.0,
-                0.0,
-                1.0,
-                2.0,
-                3.0,
-                4.0,
-            ],
+            "min_start_time": [0.0, 0.0, 1.0, 1.0, 2.0, 3.0, 4.0],
         },
     ),
     MDATestCase(
@@ -680,10 +662,10 @@ GRID_SUBSEQ_CASES: list[MDATestCase] = [
                 {"p": 0, "c": 1, "z": 1},
                 {"p": 0, "c": 1, "z": 2},
                 {"p": 1, "c": 0, "z": 0},
-                {"p": 1, "c": 1, "z": 0},
                 {"p": 1, "c": 0, "z": 1},
-                {"p": 1, "c": 1, "z": 1},
                 {"p": 1, "c": 0, "z": 2},
+                {"p": 1, "c": 1, "z": 0},
+                {"p": 1, "c": 1, "z": 1},
                 {"p": 1, "c": 1, "z": 2},
             ],
             "z_pos": [
@@ -694,13 +676,13 @@ GRID_SUBSEQ_CASES: list[MDATestCase] = [
                 0.0,
                 1.0,
                 49.0,
+                50.0,
+                51.0,
                 49.0,
                 50.0,
-                50.0,
-                51.0,
                 51.0,
             ],
-            "channel": ["FITC"] * 3 + ["Cy5"] * 3 + ["FITC", "Cy3"] * 3,
+            "channel": ["FITC"] * 3 + ["Cy5"] * 3 + ["FITC"] * 3 + ["Cy3"] * 3,
         },
     ),
     MDATestCase(
@@ -719,10 +701,10 @@ GRID_SUBSEQ_CASES: list[MDATestCase] = [
             ],
         ),
         expected={
-            "index": genindex({"p": 1, "c": 2, "g": 2}),
+            "index": genindex({"p": 1, "g": 2, "c": 2}),
             "x_pos": [0.0, 0.0, 0.0, 0.0],
-            "y_pos": [0.5, -0.5, 0.5, -0.5],
-            "channel": ["Cy5", "Cy5", "FITC", "FITC"],
+            "y_pos": [0.5, 0.5, -0.5, -0.5],
+            "channel": ["Cy5", "FITC", "Cy5", "FITC"],
         },
     ),
     MDATestCase(
@@ -764,9 +746,9 @@ GRID_SUBSEQ_CASES: list[MDATestCase] = [
             ],
         ),
         expected={
-            "index": genindex({"p": 1, "c": 2, "t": 3}),
-            "min_start_time": [0.0, 1.0, 2.0, 0.0, 1.0, 2.0],
-            "channel": ["Cy5", "Cy5", "Cy5", "FITC", "FITC", "FITC"],
+            "index": genindex({"t": 3, "p": 1, "c": 2}),
+            "min_start_time": [0.0, 0.0, 1.0, 1.0, 2.0, 2.0],
+            "channel": ["Cy5", "FITC"] * 3,
         },
     ),
     MDATestCase(
@@ -788,7 +770,7 @@ GRID_SUBSEQ_CASES: list[MDATestCase] = [
                 )
             ],
         ),
-        expected={"channel": ["Cy5"] * 24 + ["FITC"] * 24},
+        expected={"channel": (["Cy5"] * 3 + ["FITC"] * 3) * 8},
     ),
     MDATestCase(
         name="sub_channels_and_any_plan",
@@ -1135,9 +1117,8 @@ KEEP_SHUTTER_CASES: list[MDATestCase] = [
             ],
             keep_shutter_open_across="g",
         ),
-        # for event in seq:
-        #     assert event.keep_shutter_open != (event.index["g"] == 3)
-        predicate=ensure_shutter_behavior(expected_indices=[0, 1, 2, 4, 5, 6]),
+        # g is outer and c is inner, so consecutive events always differ in c.
+        predicate=ensure_shutter_behavior(expected_indices=[]),
     ),
 ]
 
@@ -1178,7 +1159,7 @@ RESET_EVENT_TIMER_CASES: list[MDATestCase] = [
             ]
         ),
         expected={
-            "reset_event_timer": [True, False, True, False],
+            "reset_event_timer": [True, False, False, False],
         },
     ),
 ]

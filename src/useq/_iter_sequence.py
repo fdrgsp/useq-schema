@@ -1,44 +1,34 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import cache
-from itertools import product
-from typing import TYPE_CHECKING, Any, cast
-
-from typing_extensions import TypedDict
+from heapq import merge
+from typing import TYPE_CHECKING, Any
 
 from useq._channel import Channel  # noqa: TC001  # noqa: TCH001
 from useq._enums import AXES, Axis
 from useq._mda_event import Channel as EventChannel
-from useq._mda_event import MDAEvent, PropertyTuple, ReadOnlyDict
-from useq._utils import _has_axes
+from useq._mda_event import MDAEvent, ReadOnlyDict
+from useq._position import Position
 from useq._z import AnyZPlan  # noqa: TC001  # noqa: TCH001
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
     from useq._mda_sequence import MDASequence
-    from useq._position import Position, PositionBase, RelativePosition
+    from useq._position import PositionBase
 
 
-class MDAEventDict(TypedDict, total=False):
-    index: ReadOnlyDict
-    channel: EventChannel | None
-    exposure: float | None
-    min_start_time: float | None
-    pos_name: str | None
-    x_pos: float | None
-    y_pos: float | None
-    z_pos: float | None
-    sequence: MDASequence | None
-    properties: list[PropertyTuple] | None
-    metadata: dict
-    reset_event_timer: bool
+@dataclass(frozen=True)
+class _AxisPlan:
+    """An axis iterator together with the sequence that owns its plan."""
+
+    key: str
+    values: tuple[Channel | float | PositionBase, ...]
+    sequence: MDASequence
 
 
-class PositionDict(TypedDict, total=False):
-    x_pos: float
-    y_pos: float
-    z_pos: float
+_AxisSelection = dict[str, tuple[int, Any, _AxisPlan]]
 
 
 @cache
@@ -54,6 +44,106 @@ def _sizes(seq: MDASequence) -> dict[str, int]:
 @cache
 def _used_axes(seq: MDASequence) -> str:
     return "".join(k for k in seq.axis_order if _sizes(seq)[k])
+
+
+def _axis_plans(seq: MDASequence) -> tuple[_AxisPlan, ...]:
+    return tuple(_AxisPlan(ax, _iter_axis(seq, ax), seq) for ax in _used_axes(seq))
+
+
+def _sort_axis_plans(
+    plans: Iterable[_AxisPlan], order: tuple[str, ...]
+) -> tuple[_AxisPlan, ...]:
+    """Sort plans by the root order, preserving insertion order for unlisted axes."""
+    rank = {str(axis): idx for idx, axis in enumerate(order)}
+    return tuple(sorted(plans, key=lambda plan: rank.get(plan.key, len(rank))))
+
+
+def _iter_plan_product(
+    axes: tuple[_AxisPlan, ...],
+    *,
+    prefix: _AxisSelection | None = None,
+    active_sequence: MDASequence,
+) -> Iterator[tuple[_AxisSelection, MDASequence]]:
+    """Iterate one position branch's effective axis plans."""
+    prefix = {} if prefix is None else prefix
+    if not axes:
+        if prefix:
+            yield prefix, active_sequence
+        return
+
+    current, *remaining = axes
+    for idx, value in enumerate(current.values):
+        branch_prefix = {**prefix, current.key: (idx, value, current)}
+        yield from _iter_plan_product(
+            tuple(remaining),
+            prefix=branch_prefix,
+            active_sequence=active_sequence,
+        )
+
+
+def _iter_axis_combinations(
+    sequence: MDASequence,
+) -> Iterator[tuple[_AxisSelection, MDASequence]]:
+    """Iterate root and position axes in one global acquisition order.
+
+    Each position is a sparse branch: its sub-sequence overrides matching root
+    plans and may introduce new axes.  Branches are individually iterated in the
+    root order and lazily merged by their axis indices.  Consequently an axis that
+    exists only in a sub-sequence can still be ordered before ``p`` without
+    duplicating events for positions that do not define that axis.
+    """
+    root_axes = _axis_plans(sequence)
+    position_plan = next(
+        (plan for plan in root_axes if plan.key == Axis.POSITION), None
+    )
+    if position_plan is None:
+        yield from _iter_plan_product(
+            _sort_axis_plans(root_axes, sequence.axis_order),
+            active_sequence=sequence,
+        )
+        return
+
+    inherited_axes = tuple(plan for plan in root_axes if plan is not position_plan)
+    branch_iterators: list[Iterator[tuple[_AxisSelection, MDASequence]]] = []
+    extra_order: list[str] = []
+
+    for p_idx, position in enumerate(position_plan.values):
+        child = position.sequence if isinstance(position, Position) else None
+        child_axes = _axis_plans(child) if child is not None else ()
+        if any(plan.key == Axis.POSITION for plan in child_axes):
+            raise ValueError(
+                "A Position sequence cannot have multiple stage positions."
+            )
+
+        override_keys = {plan.key for plan in child_axes}
+        effective_axes = (
+            tuple(plan for plan in inherited_axes if plan.key not in override_keys)
+            + child_axes
+        )
+        effective_axes = _sort_axis_plans(effective_axes, sequence.axis_order)
+        for plan in effective_axes:
+            if plan.key not in sequence.axis_order and plan.key not in extra_order:
+                extra_order.append(plan.key)
+
+        prefix = {str(Axis.POSITION): (p_idx, position, position_plan)}
+        branch_iterators.append(
+            _iter_plan_product(
+                effective_axes,
+                prefix=prefix,
+                active_sequence=child if child is not None else sequence,
+            )
+        )
+
+    global_order = (*sequence.axis_order, *extra_order)
+
+    def _sort_key(item: tuple[_AxisSelection, MDASequence]) -> tuple[int, ...]:
+        selection, _ = item
+        # A branch without an axis behaves like a singleton at index zero.
+        return tuple(
+            selection[axis][0] if axis in selection else 0 for axis in global_order
+        )
+
+    yield from merge(*branch_iterators, key=_sort_key)
 
 
 def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
@@ -106,80 +196,48 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
     yield this_e
 
 
-def _iter_sequence(
-    sequence: MDASequence,
-    *,
-    base_event_kwargs: MDAEventDict | None = None,
-    event_kwarg_overrides: MDAEventDict | None = None,
-    position_offsets: PositionDict | None = None,
-    _last_t_idx: int = -1,
-    _last_p_idx: int = -1,
-) -> Iterator[MDAEvent]:
+def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
     """Helper function for `iter_sequence`.
 
-    We put most of the logic into this sub-function so that `iter_sequence` can
-    easily modify the resulting sequence of events (e.g. to peek at the next event
-    before yielding the current one).
-
-    It also keeps the sub-sequence iteration kwargs out of the public API.
+    This function expands the branch-aware axis combinations, constructs events, and
+    inserts autofocus events.  The outer `iter_sequence` function may then inspect
+    adjacent events to determine shutter behavior.
 
     Parameters
     ----------
     sequence : MDASequence
         The sequence to iterate over.
-    base_event_kwargs : MDAEventDict | None
-        A dictionary of "global" kwargs to begin with when building the kwargs passed
-        to each MDAEvent.  These will be overriden by event-specific kwargs (e.g. if
-        the event specifies a channel, it will be used instead of the
-        `base_event_kwargs`.)
-    event_kwarg_overrides : MDAEventDict | None
-        A dictionary of kwargs that will be applied to all events. Unlike
-        `base_event_kwargs`, these kwargs take precedence over any event-specific
-        kwargs.
-    position_offsets : PositionDict | None
-        A dictionary of offsets to apply to each position. This can be used to shift
-        all positions in a sub-sequence.  Keys must be one of `x_pos`, `y_pos`, or
-        `z_pos` and values should be floats.s
-    _last_t_idx : int
-        The index of the last timepoint.  This is used to determine if the event
-        should reset the event timer.
 
     Yields
     ------
     MDAEvent
         Each event in the MDA sequence.
     """
-    order = _used_axes(sequence)
-    # this needs to be tuple(...) to work for mypyc
-    axis_iterators = tuple(enumerate(_iter_axis(sequence, ax)) for ax in order)
-    for item in product(*axis_iterators):
-        if not item:  # the case with no events
-            continue  # pragma: no cover
-        # get axes objects for this event
+    last_t_idx = -1
+    last_p_idx = -1
+    for selection, active_sequence in _iter_axis_combinations(sequence):
         index, time, position, grid, channel, z_pos = _parse_axes(
-            zip(order, item, strict=False)
+            (key, (idx, value)) for key, (idx, value, _plan) in selection.items()
         )
+        z_selection = selection.get(str(Axis.Z))
+        z_plan = z_selection[2].sequence.z_plan if z_selection is not None else None
 
-        # skip if necessary
-        if _should_skip(position, channel, index, sequence.z_plan):
+        if _should_skip(channel, index, z_plan):
             continue
 
-        # build kwargs that will be passed to this MDAEvent
-        event_kwargs = base_event_kwargs or MDAEventDict(sequence=sequence)
-        # the .update() here lets us build on top of the base_event.index if present
-
-        event_kwargs["index"] = ReadOnlyDict(
-            {**event_kwargs.get("index", {}), **index}  # type: ignore
-        )
-        # determine x, y, z positions
-        event_kwargs.update(_xyzpos(position, channel, sequence.z_plan, grid, z_pos))
+        event_kwargs: dict[str, Any] = {
+            "sequence": sequence,
+            "index": ReadOnlyDict(index),
+            **_xyzpos(position, channel, z_plan, grid, z_pos),
+        }
         if position and position.name:
             event_kwargs["pos_name"] = position.name
-        # include position properties only when p-index changes
+
         p_idx = index.get(Axis.POSITION, -1)
-        if position and position.properties and p_idx != _last_p_idx:
+        if position and position.properties and p_idx != last_p_idx:
             event_kwargs["properties"] = list(position.properties)
-        _last_p_idx = p_idx
+        last_p_idx = p_idx
+
         if channel:
             event_kwargs["channel"] = EventChannel.model_construct(
                 config=channel.config, group=channel.group
@@ -189,101 +247,35 @@ def _iter_sequence(
         if time is not None:
             event_kwargs["min_start_time"] = time
 
-        # apply any overrides
-        if event_kwarg_overrides:
-            event_kwargs.update(event_kwarg_overrides)
-
-        # shift positions if position_offsets have been provided
-        # (usually from sub-sequences)
-        if position_offsets:
-            for k, v in position_offsets.items():
-                if event_kwargs[k] is not None:  # type: ignore[literal-required]
-                    event_kwargs[k] += v  # type: ignore[literal-required]
-
-        # grab global autofocus plan (may be overridden by position-specific plan below)
-        autofocus_plan = sequence.autofocus_plan
-
-        # if a position has been declared with a sub-sequence, we recurse into it
-        if position:
-            if _has_axes(position.sequence):
-                # determine any relative position shifts or global overrides
-                _pos, _offsets = _position_offsets(position, event_kwargs)
-                # build overrides for this position
-                pos_overrides = MDAEventDict(sequence=sequence, **_pos)  # pyright: ignore[reportCallIssue]
-                pos_overrides["reset_event_timer"] = False
-                if position.name:
-                    pos_overrides["pos_name"] = position.name
-
-                sub_seq = position.sequence
-                # if the sub-sequence doe not have an autofocus plan, we override it
-                # with the parent sequence's autofocus plan
-                if not sub_seq.autofocus_plan:
-                    sub_seq = sub_seq.model_copy(
-                        update={"autofocus_plan": autofocus_plan}
-                    )
-
-                # recurse into the sub-sequence
-                yield from _iter_sequence(
-                    sub_seq,
-                    base_event_kwargs=event_kwargs.copy(),
-                    event_kwarg_overrides=pos_overrides,
-                    position_offsets=_offsets,
-                    _last_t_idx=_last_t_idx,
-                    _last_p_idx=_last_p_idx,
-                )
-                continue
-            # note that position.sequence may be Falsey even if not None, for example
-            # if all it has is an autofocus plan.  In that case, we don't recurse.
-            # and we don't hit the continue statement, but we can use the autofocus plan
-            elif position.sequence is not None and position.sequence.autofocus_plan:
-                autofocus_plan = position.sequence.autofocus_plan
-
-        if event_kwargs["index"].get(Axis.TIME) == 0 and _last_t_idx != 0:
+        if index.get(Axis.TIME) == 0 and last_t_idx != 0:
             event_kwargs["reset_event_timer"] = True
+
         event = MDAEvent.model_construct(**event_kwargs)
+        autofocus_plan = active_sequence.autofocus_plan or sequence.autofocus_plan
         if autofocus_plan:
-            af_event = autofocus_plan.event(event)
+            af_input = event
+            if z_plan is not sequence.z_plan:
+                effective_sequence = sequence.model_copy(update={"z_plan": z_plan})
+                af_input = event.model_copy(update={"sequence": effective_sequence})
+            af_event = autofocus_plan.event(af_input)
             if af_event:
+                if af_event.sequence is not sequence:
+                    af_event = af_event.model_copy(update={"sequence": sequence})
                 yield af_event
         yield event
-        _last_t_idx = event.index.get(Axis.TIME, _last_t_idx)
+        last_t_idx = event.index.get(Axis.TIME, last_t_idx)
 
 
 # ###################### Helper functions ######################
 
 
-def _position_offsets(
-    position: Position, event_kwargs: MDAEventDict
-) -> tuple[MDAEventDict, PositionDict]:
-    """Determine shifts and position overrides for position subsequences."""
-    pos_seq = cast("MDASequence", position.sequence)
-    overrides = MDAEventDict()
-    offsets = PositionDict()
-    if not pos_seq.z_plan:
-        # if this position has no z_plan, we use the z_pos from the parent
-        overrides["z_pos"] = event_kwargs.get("z_pos")
-    elif pos_seq.z_plan.is_relative:
-        # otherwise apply z-shifts if this position has a relative z_plan
-        offsets["z_pos"] = position.z or 0.0
-
-    if not pos_seq.grid_plan:
-        # if this position has no grid plan, we use the x_pos and y_pos from the parent
-        overrides["x_pos"] = event_kwargs.get("x_pos")
-        overrides["y_pos"] = event_kwargs.get("y_pos")
-    elif pos_seq.grid_plan.is_relative:
-        # otherwise apply x/y shifts if this position has a relative grid plan
-        offsets["x_pos"] = position.x or 0.0
-        offsets["y_pos"] = position.y or 0.0
-    return overrides, offsets
-
-
 def _parse_axes(
-    event: zip[tuple[str, Any]],
+    event: Iterable[tuple[str, tuple[int, Any]]],
 ) -> tuple[
     dict[str, int],
     float | None,  # time
     Position | None,
-    RelativePosition | None,
+    PositionBase | None,
     Channel | None,
     float | None,  # z
 ]:
@@ -301,7 +293,6 @@ def _parse_axes(
 
 
 def _should_skip(
-    position: Position | None,
     channel: Channel | None,
     index: dict[str, int],
     z_plan: AnyZPlan | None,
@@ -320,35 +311,6 @@ def _should_skip(
         ):
             return True
 
-    if (
-        not position
-        or position.sequence is None
-        or position.sequence.autofocus_plan is not None
-    ):
-        return False
-
-    # NOTE: if we ever add more plans, they will need to be explicitly added
-    # https://github.com/pymmcore-plus/useq-schema/pull/85
-
-    # get if sub-sequence has any plan
-    plans = any(
-        (
-            position.sequence.grid_plan,
-            position.sequence.z_plan,
-            position.sequence.time_plan,
-        )
-    )
-    # overwriting the *global* channel index since it is no longer relevant.
-    # if channel IS SPECIFIED in the position.sequence WITH any plan,
-    # we skip otherwise the channel will be acquired twice. Same happens if
-    # the channel IS NOT SPECIFIED but ANY plan is.
-    if index.get(Axis.CHANNEL, 0) != 0:
-        if (position.sequence.channels and plans) or not plans:
-            return True
-    if Axis.Z in index and index[Axis.Z] != 0 and position.sequence.z_plan:
-        return True
-    if Axis.GRID in index and index[Axis.GRID] != 0 and position.sequence.grid_plan:
-        return True
     return False
 
 
@@ -356,9 +318,9 @@ def _xyzpos(
     position: Position | None,
     channel: Channel | None,
     z_plan: AnyZPlan | None,
-    grid: RelativePosition | None = None,
+    grid: PositionBase | None = None,
     z_pos: float | None = None,
-) -> MDAEventDict:
+) -> dict[str, float | None]:
     if z_pos is not None:
         # combine z_pos with z_offset
         if channel and channel.z_offset is not None:
