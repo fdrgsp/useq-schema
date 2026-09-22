@@ -182,13 +182,17 @@ def iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
     if (this_e := next(it, None)) is None:  # pragma: no cover
         return
 
+    _missing = object()
     for next_e in it:
         # set `keep_shutter_open` to `True` if and only if ALL axes whose index
-        # changes betwee this_event and next_event are in `keep_shutter_open_axes`
+        # changes between this_event and next_event are in `keep_shutter_open_axes`.
+        # An axis present in only one of the two events (e.g. because only one
+        # stage position has a 't' subsequence) counts as "changed" too.
+        this_idx, next_idx = this_e.index, next_e.index
         if all(
             axis in keep_shutter_open_axes
-            for axis, idx in this_e.index.items()
-            if idx != next_e.index[axis]
+            for axis in this_idx.keys() | next_idx.keys()
+            if this_idx.get(axis, _missing) != next_idx.get(axis, _missing)
         ):
             this_e = this_e.model_copy(update={"keep_shutter_open": True})
         yield this_e

@@ -1120,6 +1120,27 @@ KEEP_SHUTTER_CASES: list[MDATestCase] = [
         # g is outer and c is inner, so consecutive events always differ in c.
         predicate=ensure_shutter_behavior(expected_indices=[]),
     ),
+    # regression test: only one of the two positions has a 't' subsequence, so
+    # consecutive events don't all share the same set of index axes (position 0
+    # has no 't' axis at all). Shutter should stay open only across the pure
+    # t-only transitions within position 1's subsequence.
+    MDATestCase(
+        name="keep_shutter_open_across_t_with_heterogeneous_position_axes",
+        seq=MDASequence(
+            axis_order="zpt",
+            stage_positions=[
+                (0, 0),
+                Position(
+                    sequence=MDASequence(
+                        time_plan=TIntervalLoops(interval=0.1, loops=3)
+                    ),
+                ),
+            ],
+            z_plan=ZRangeAround(range=2, step=1),
+            keep_shutter_open_across="t",
+        ),
+        predicate=ensure_shutter_behavior(expected_indices=[1, 2, 5, 6, 9, 10]),
+    ),
 ]
 
 # ##############################################################################

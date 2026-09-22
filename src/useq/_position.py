@@ -57,6 +57,11 @@ class PositionBase(MutableModel):
     grid_col: int | None = None
 
     @property
+    def is_relative(self) -> bool:
+        """Whether this position is defined relative to another position."""
+        raise NotImplementedError  # pragma: no cover
+
+    @property
     @deprecated("Use 'grid_row' instead.")
     def row(self) -> int | None:
         return self.grid_row
@@ -199,6 +204,10 @@ class RelativePosition(PositionBase, _MultiPointPlan["RelativePosition"]):
     x: float = 0  # pyright: ignore[reportIncompatibleVariableOverride]
     y: float = 0  # pyright: ignore[reportIncompatibleVariableOverride]
     z: float = 0  # pyright: ignore[reportIncompatibleVariableOverride]
+
+    @property
+    def is_relative(self) -> bool:
+        return True
 
     def __iter__(self) -> Iterator["RelativePosition"]:  # type: ignore [override]
         yield self
