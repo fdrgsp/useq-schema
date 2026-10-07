@@ -5,10 +5,22 @@ from typing import Any
 import pydantic
 from typing_extensions import deprecated
 
-from useq._actions import AcquireImage, Action, CustomAction, HardwareAutofocus
+from useq._actions import (
+    AcquireImage,
+    Action,
+    CustomAction,
+    HardwareAutofocus,
+    SoftwareAutofocus,
+)
+from useq._autofocus import (
+    AnyAutofocusPlan,
+    AutoFocusPlan,
+    AxesBasedAF,
+    SoftwareAutofocusPlan,
+    SoftwareAxesBasedAF,
+)
 from useq._channel import Channel
 from useq._enums import Axis, RelativeTo, Shape
-from useq._hardware_autofocus import AnyAutofocusPlan, AutoFocusPlan, AxesBasedAF
 from useq._mda_event import Channel as EventChannel
 from useq._mda_event import MDAEvent, PropertyTuple, SLMImage
 from useq._plate import WellPlate, WellPlatePlan
@@ -116,6 +128,9 @@ __all__ = [
     "Shape",
     "SimpleValueAxis",
     "SinglePhaseTimePlan",
+    "SoftwareAutofocus",
+    "SoftwareAutofocusPlan",
+    "SoftwareAxesBasedAF",
     "StagePositions",
     "TDurationLoops",
     "TIntervalDuration",

@@ -14,8 +14,9 @@ from pydantic import Field, TypeAdapter, field_validator, model_validator
 from typing_extensions import deprecated
 
 from useq import v2
+from useq._autofocus import AnyAutofocusPlan  # noqa: TC001
+from useq._autofocus_base import _AxesTrigger
 from useq._enums import AXES, Axis
-from useq._hardware_autofocus import AnyAutofocusPlan, AxesBasedAF
 from useq._mda_event import MDAEvent
 from useq._mda_sequence import MDASequence as MDASequenceV1
 from useq.v2 import _position
@@ -186,7 +187,7 @@ class MDASequence(MultiAxisSequence[MDAEvent]):
     def _compose_transforms(self) -> MDASequence:
         """Compose transforms after initialization."""
         # add autofocus transform if applicable
-        if isinstance(self.autofocus_plan, AxesBasedAF) and not any(
+        if isinstance(self.autofocus_plan, _AxesTrigger) and not any(
             isinstance(ax, AutoFocusTransform) for ax in self.transforms
         ):
             self.transforms += (AutoFocusTransform(self.autofocus_plan),)

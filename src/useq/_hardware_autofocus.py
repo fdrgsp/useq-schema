@@ -1,13 +1,12 @@
-from typing import Any
+"""Plans for autofocus performed by a hardware autofocus device."""
 
-from pydantic import PrivateAttr
+from pydantic import Field
 
 from useq._actions import HardwareAutofocus
-from useq._base_model import FrozenModel
-from useq._mda_event import MDAEvent
+from useq._autofocus_base import _AutofocusPlanBase, _AxesTrigger
 
 
-class AutoFocusPlan(FrozenModel):
+class AutoFocusPlan(_AutofocusPlanBase):
     """Base class for hardware autofocus plans.
 
     Attributes
@@ -20,47 +19,39 @@ class AutoFocusPlan(FrozenModel):
         Before autofocus is performed, the autofocus motor should be moved to this
         offset, if applicable. (Not all autofocus devices have an offset motor.)
         If None, the autofocus motor should not be moved.
+    max_retries : int
+        The number of retries if autofocus fails. By default, 3.
+    search_below_um : float
+        If autofocus fails at the current focus position, acquisition engines may step
+        the focus device *down* by `search_step_um` at a time, up to this distance in
+        µm, retrying autofocus at each step.  By default, `0.0`: no search.
+    search_above_um : float
+        As `search_below_um`, but stepping *up*.  By default, `0.0`.
+    search_step_um : float
+        Step size in µm used while searching.  By default, `5.0`.
     """
 
     autofocus_device_name: str | None = None
     autofocus_motor_offset: float | None = None
+    max_retries: int = 3
+    search_below_um: float = Field(default=0.0, ge=0.0)
+    search_above_um: float = Field(default=0.0, ge=0.0)
+    search_step_um: float = Field(default=5.0, ge=0.0)
 
     def as_action(self) -> HardwareAutofocus:
         """Return a [`useq.HardwareAutofocus`][] for this autofocus plan."""
         return HardwareAutofocus(
             autofocus_device_name=self.autofocus_device_name,
             autofocus_motor_offset=self.autofocus_motor_offset,
+            max_retries=self.max_retries,
+            search_below_um=self.search_below_um,
+            search_above_um=self.search_above_um,
+            search_step_um=self.search_step_um,
         )
 
-    def event(self, event: MDAEvent) -> MDAEvent | None:
-        """Return an autofocus [`useq.MDAEvent`][] if autofocus should be performed.
 
-        The z position of the new [`useq.MDAEvent`][] is also updated if a relative
-        zplan is provided since autofocus shuld be performed on the home z stack
-        position.
-        """
-        if not self.should_autofocus(event):
-            return None
-
-        updates: dict[str, Any] = {"action": self.as_action()}
-        if event.z_pos is not None and event.sequence is not None:
-            zplan = event.sequence.z_plan
-            if zplan and zplan.is_relative and "z" in event.index:
-                updates["z_pos"] = event.z_pos - list(zplan)[event.index["z"]]
-
-        return event.model_copy(update=updates)
-
-    def should_autofocus(self, event: MDAEvent) -> bool:
-        """Method that must be implemented by a subclass.
-
-        Should return True if autofocus should be performed (see
-        [`useq.AxesBasedAF`][]).
-        """
-        raise NotImplementedError("should_autofocus() must be implemented by subclass.")
-
-
-class AxesBasedAF(AutoFocusPlan):
-    """Autofocus plan that performs autofocus when any of the specified axes change.
+class AxesBasedAF(_AxesTrigger, AutoFocusPlan):
+    """Hardware autofocus plan that fires when any of the specified axes change.
 
     Attributes
     ----------
@@ -69,22 +60,7 @@ class AxesBasedAF(AutoFocusPlan):
         *any* axis in this tuple is change, autofocus will be performed.  For example,
         if `axes` is `('p',)` then autofocus will be performed every time the `p` axis
         is change, (in other words: every time the position is changed.).
+    every_n_timepoints : int
+        Only autofocus on time points whose index is a multiple of this number.
+        By default, `1`: every time point.
     """
-
-    axes: tuple[str, ...]
-    _previous: dict = PrivateAttr(default_factory=dict)
-
-    def should_autofocus(self, event: MDAEvent) -> bool:
-        """Return `True` if autofocus should be performed at this event.
-
-        Will return `True` if any of the axes specified in `axes` have changed from the
-        previous event.
-        """
-        self._previous, previous = dict(event.index), self._previous
-        return any(
-            axis in self.axes and previous.get(axis) != index
-            for axis, index in event.index.items()
-        )
-
-
-AnyAutofocusPlan = AxesBasedAF

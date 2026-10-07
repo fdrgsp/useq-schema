@@ -4,7 +4,12 @@
     "autofocus_motor_offset": 50.0,
     "axes": [
       "c"
-    ]
+    ],
+    "every_n_timepoints": 1,
+    "max_retries": 3,
+    "search_above_um": 0.0,
+    "search_below_um": 0.0,
+    "search_step_um": 5.0
   },
   "axis_order": [
     "t",
@@ -62,11 +67,11 @@
   "stage_positions": [
     {
       "grid_col": null,
+      "grid_row": null,
       "name": null,
       "plate_col": null,
       "plate_row": null,
       "properties": null,
-      "grid_row": null,
       "sequence": null,
       "x": 10.0,
       "y": 20.0,
@@ -74,11 +79,11 @@
     },
     {
       "grid_col": null,
+      "grid_row": null,
       "name": "test_name",
       "plate_col": null,
       "plate_row": null,
       "properties": null,
-      "grid_row": null,
       "sequence": {
         "autofocus_plan": null,
         "axis_order": [

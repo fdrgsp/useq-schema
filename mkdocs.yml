@@ -20,6 +20,7 @@ nav:
         - schema/event.md
         - schema/axes.md
         - schema/hardware_autofocus.md
+        - schema/software_autofocus.md
       - api.md
       - v2-migration.md
   - pymmcore-widgets: /pymmcore-widgets/

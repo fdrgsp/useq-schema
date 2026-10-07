@@ -13,11 +13,12 @@ import numpy as np
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from useq._actions import AcquireImage, CustomAction
+from useq._autofocus import AnyAutofocusPlan  # noqa: TC001
+from useq._autofocus_base import _AutofocusPlanBase
 from useq._base_model import UseqModel
 from useq._channel import Channel
 from useq._enums import AXES, Axis
 from useq._grid import MultiPointPlan  # noqa: TC001
-from useq._hardware_autofocus import AnyAutofocusPlan, AxesBasedAF
 from useq._iter_sequence import iter_sequence
 from useq._plate import WellPlatePlan
 from useq._position import Position, PositionBase, RelativePosition
@@ -482,7 +483,7 @@ class MDASequence(UseqModel):
         # Cannot use autofocus plan with absolute z_plan
         if Axis.Z in order and z_plan and not z_plan.is_relative:
             err = "Absolute Z positions cannot be used with autofocus plan."
-            if isinstance(autofocus_plan, AxesBasedAF):
+            if isinstance(autofocus_plan, _AutofocusPlanBase):
                 raise ValueError(err)  # pragma: no cover
             for p in stage_positions:
                 if p.sequence is not None and p.sequence.autofocus_plan:

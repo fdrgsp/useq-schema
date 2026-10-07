@@ -3,7 +3,20 @@
 import warnings
 from typing import TYPE_CHECKING, Any
 
-from useq._actions import AcquireImage, Action, CustomAction, HardwareAutofocus
+from useq._actions import (
+    AcquireImage,
+    Action,
+    CustomAction,
+    HardwareAutofocus,
+    SoftwareAutofocus,
+)
+from useq._autofocus import (
+    AnyAutofocusPlan,
+    AutoFocusPlan,
+    AxesBasedAF,
+    SoftwareAutofocusPlan,
+    SoftwareAxesBasedAF,
+)
 from useq._channel import Channel
 from useq._enums import Axis, Shape
 from useq._grid import (
@@ -15,7 +28,6 @@ from useq._grid import (
     RandomPoints,
     RelativeMultiPointPlan,
 )
-from useq._hardware_autofocus import AnyAutofocusPlan, AutoFocusPlan, AxesBasedAF
 from useq._mda_event import CameraROI, MDAEvent, PropertyTuple, SLMImage
 from useq._mda_event import Channel as EventChannel
 from useq._mda_sequence import MDASequence
@@ -75,6 +87,9 @@ __all__ = [
     "RelativePosition",
     "SLMImage",
     "Shape",
+    "SoftwareAutofocus",
+    "SoftwareAutofocusPlan",
+    "SoftwareAxesBasedAF",
     "TDurationLoops",
     "TIntervalDuration",
     "TIntervalLoops",

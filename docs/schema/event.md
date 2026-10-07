@@ -26,6 +26,10 @@
     options:
         members: []
 
+::: useq.SoftwareAutofocus
+    options:
+        members: []
+
 ::: useq.CustomAction
     options:
         members: []
