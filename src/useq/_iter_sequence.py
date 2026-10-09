@@ -5,6 +5,7 @@ from functools import cache
 from heapq import merge
 from typing import TYPE_CHECKING, Any
 
+from useq._autofocus_base import _AxesTrigger
 from useq._channel import Channel  # noqa: TC001  # noqa: TCH001
 from useq._enums import AXES, Axis
 from useq._mda_event import Channel as EventChannel
@@ -13,7 +14,7 @@ from useq._position import Position
 from useq._z import AnyZPlan  # noqa: TC001  # noqa: TCH001
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
 
     from useq._mda_sequence import MDASequence
     from useq._position import PositionBase
@@ -219,6 +220,11 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
     """
     last_t_idx = -1
     last_p_idx = -1
+    # The index each axes-based autofocus plan last saw, kept *here* rather than on
+    # the plan, so that every iteration of a sequence -- or of a copy of one --
+    # triggers autofocus exactly as the first did.  Keyed by identity: per-position
+    # sub-sequences each carry a plan of their own, which sees only their events.
+    af_previous: dict[int, Mapping[str, int]] = {}
     for selection, active_sequence in _iter_axis_combinations(sequence):
         index, time, position, grid, channel, z_pos = _parse_axes(
             (key, (idx, value)) for key, (idx, value, _plan) in selection.items()
@@ -261,7 +267,17 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
             if z_plan is not sequence.z_plan:
                 effective_sequence = sequence.model_copy(update={"z_plan": z_plan})
                 af_input = event.model_copy(update={"sequence": effective_sequence})
-            af_event = autofocus_plan.event(af_input)
+            if isinstance(autofocus_plan, _AxesTrigger):
+                previous = af_previous.get(id(autofocus_plan), {})
+                af_previous[id(autofocus_plan)] = dict(af_input.index)
+                af_event = (
+                    autofocus_plan.autofocus_event(af_input)
+                    if autofocus_plan.triggers_after(previous, af_input)
+                    else None
+                )
+            else:
+                # a plan of some other kind keeps its own state, as it always has
+                af_event = autofocus_plan.event(af_input)
             if af_event:
                 if af_event.sequence is not sequence:
                     af_event = af_event.model_copy(update={"sequence": sequence})

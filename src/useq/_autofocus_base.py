@@ -4,6 +4,7 @@ Concrete plans live in `useq._hardware_autofocus` and `useq._software_autofocus`
 the union of them is `useq._autofocus.AnyAutofocusPlan`.
 """
 
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import Field, PrivateAttr
@@ -34,7 +35,13 @@ class _AutofocusPlanBase(FrozenModel):
         """
         if not self.should_autofocus(event):
             return None
+        return self.autofocus_event(event)
 
+    def autofocus_event(self, event: MDAEvent) -> MDAEvent:
+        """Return the autofocus event to insert before `event`.
+
+        Without asking whether one is due: that is `should_autofocus`.
+        """
         updates: dict[str, Any] = {"action": self.as_action()}
         if event.z_pos is not None and event.sequence is not None:
             zplan = event.sequence.z_plan
@@ -71,6 +78,11 @@ class _AxesTrigger(FrozenModel):
 
     axes: tuple[str, ...]
     every_n_timepoints: int = Field(default=1, ge=1)
+    # Only for `should_autofocus` called on its own. Iterating a sequence does not
+    # use it: state kept on the plan outlived the iteration, so the next iteration
+    # of the same sequence -- or of a copy, which copies private attributes too --
+    # started out believing it had already seen the first position, and skipped
+    # its autofocus.
     _previous: dict = PrivateAttr(default_factory=dict)
 
     def should_autofocus(self, event: MDAEvent) -> bool:
@@ -78,8 +90,20 @@ class _AxesTrigger(FrozenModel):
 
         Will return `True` if any of the axes specified in `axes` have changed from the
         previous event, unless `every_n_timepoints` excludes this time point.
+
+        Called on its own, the "previous event" is the one this plan was last
+        asked about.  Iterating an [`useq.MDASequence`][] instead keeps that record
+        per iteration (see `triggers_after`), so each iteration starts afresh.
         """
         self._previous, previous = dict(event.index), self._previous
+        return self.triggers_after(previous, event)
+
+    def triggers_after(self, previous: Mapping[str, int], event: MDAEvent) -> bool:
+        """Return `True` if `event` should be autofocused, coming after `previous`.
+
+        `previous` is the index of the event before it, or empty for the first.
+        Unlike `should_autofocus`, this keeps no state of its own.
+        """
         if not any(
             axis in self.axes and previous.get(axis) != index
             for axis, index in event.index.items()

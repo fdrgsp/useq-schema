@@ -195,6 +195,54 @@ def test_no_autofocus_without_matching_axis() -> None:
     assert _af_events(seq) == []
 
 
+# ------------------------ the same sequence, iterated again ------------------------
+
+REUSED_PLANS = [
+    pytest.param({"axes": ("p",)}, id="hardware"),
+    pytest.param({"axes": ("p",), "method": "oughtafocus"}, id="software"),
+]
+
+
+@pytest.mark.parametrize("version", ["v1", "v2"])
+@pytest.mark.parametrize("plan", REUSED_PLANS)
+def test_iterating_again_autofocuses_again(version: str, plan: dict) -> None:
+    """The trigger's memory of the last event used to live on the plan, so a second
+    iteration of the same sequence -- an engine running it twice, say -- started
+    out believing it had already seen the first position, and skipped its
+    autofocus."""
+    cls = useq.MDASequence if version == "v1" else v2.MDASequence
+    seq = cls(stage_positions=[(0, 0, 0)], autofocus_plan=plan)
+    first = [type(e.action).__name__ for e in seq]
+    assert len(_af_events(seq)) == 1
+    assert [type(e.action).__name__ for e in seq] == first
+
+
+@pytest.mark.parametrize("plan", REUSED_PLANS)
+def test_a_copy_of_an_iterated_sequence_autofocuses(plan: dict) -> None:
+    """Pydantic copies private attributes too, so a copy inherited the stale state."""
+    seq = useq.MDASequence(stage_positions=[(0, 0, 0)], autofocus_plan=plan)
+    list(seq)
+    assert len(_af_events(seq.model_copy(deep=True))) == 1
+
+
+@pytest.mark.parametrize("plan", REUSED_PLANS)
+def test_interleaved_iterations_do_not_disturb_each_other(plan: dict) -> None:
+    seq = useq.MDASequence(stage_positions=[(0, 0, 0), (1, 1, 1)], autofocus_plan=plan)
+    expected = [type(e.action).__name__ for e in seq]
+    a, b = iter(seq), iter(seq)
+    pairs = list(zip(a, b, strict=False))
+    assert [type(x.action).__name__ for x, _ in pairs] == expected
+    assert [type(y.action).__name__ for _, y in pairs] == expected
+
+
+def test_should_autofocus_on_its_own_still_remembers_the_last_event() -> None:
+    """Called directly, outside any iteration, it compares with what it last saw."""
+    plan = useq.AxesBasedAF(axes=("p",))
+    assert plan.should_autofocus(useq.MDAEvent(index={"p": 0}))
+    assert not plan.should_autofocus(useq.MDAEvent(index={"p": 0}))
+    assert plan.should_autofocus(useq.MDAEvent(index={"p": 1}))
+
+
 # --------------------------- absolute z rejection ---------------------------
 
 
