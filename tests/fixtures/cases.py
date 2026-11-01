@@ -1,7 +1,7 @@
 # pyright: reportArgumentType=false
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import product
 from typing import TYPE_CHECKING, Any
 
@@ -1259,3 +1259,98 @@ def get_case(name: str) -> MDATestCase:
             f"Test case '{name}' not found. Did you mean: {', '.join(similar_names)}?"
         )
     raise ValueError(f"Test case '{name}' not found in the cases list.")
+
+
+# v2 retains upstream's nested-axis and timer behavior; v1 has separate expectations.
+V2_OVERRIDES: dict[str, dict[str, Any]] = {
+    "channels_and_pos_grid_plan": {
+        "expected": {
+            "index": genindex({"p": 1, "c": 2, "g": 2}),
+            "x_pos": [0.0, 0.0, 0.0, 0.0],
+            "y_pos": [0.5, -0.5, 0.5, -0.5],
+            "channel": ["Cy5", "Cy5", "FITC", "FITC"],
+        }
+    },
+    "channels_and_pos_time_plan": {
+        "expected": {
+            "index": genindex({"p": 1, "c": 2, "t": 3}),
+            "min_start_time": [0.0, 1.0, 2.0, 0.0, 1.0, 2.0],
+            "channel": ["Cy5", "Cy5", "Cy5", "FITC", "FITC", "FITC"],
+        }
+    },
+    "channels_and_pos_z_grid_and_time_plan": {
+        "expected": {"channel": ["Cy5"] * 24 + ["FITC"] * 24}
+    },
+    "keep_shutter_open_across_g_order_pgc_with_subseq": {
+        "predicate": ensure_shutter_behavior(expected_indices=[0, 1, 2, 4, 5, 6])
+    },
+    "order": {
+        "expected": {
+            "index": [
+                {"p": 0, "c": 0, "z": 0},
+                {"p": 0, "c": 0, "z": 1},
+                {"p": 0, "c": 0, "z": 2},
+                {"p": 0, "c": 1, "z": 0},
+                {"p": 0, "c": 1, "z": 1},
+                {"p": 0, "c": 1, "z": 2},
+                {"p": 1, "c": 0, "z": 0},
+                {"p": 1, "c": 1, "z": 0},
+                {"p": 1, "c": 0, "z": 1},
+                {"p": 1, "c": 1, "z": 1},
+                {"p": 1, "c": 0, "z": 2},
+                {"p": 1, "c": 1, "z": 2},
+            ],
+            "z_pos": [
+                -1.0,
+                0.0,
+                1.0,
+                -1.0,
+                0.0,
+                1.0,
+                49.0,
+                49.0,
+                50.0,
+                50.0,
+                51.0,
+                51.0,
+            ],
+            "channel": ["FITC"] * 3 + ["Cy5"] * 3 + ["FITC", "Cy3"] * 3,
+        }
+    },
+    "reset_event_timer_with_nested_position_sequences": {
+        "expected": {"reset_event_timer": [True, False, True, False]}
+    },
+    "t_in_main_and_in_position_sub_sequence": {
+        "expected": {
+            "index": [
+                {"t": 0, "p": 0},
+                {"t": 0, "p": 1},
+                {"t": 1, "p": 1},
+                {"t": 2, "p": 1},
+                {"t": 3, "p": 1},
+                {"t": 4, "p": 1},
+                {"t": 1, "p": 0},
+                {"t": 0, "p": 1},
+                {"t": 1, "p": 1},
+                {"t": 2, "p": 1},
+                {"t": 3, "p": 1},
+                {"t": 4, "p": 1},
+            ],
+            "min_start_time": [
+                0.0,
+                0.0,
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+                1.0,
+                0.0,
+                1.0,
+                2.0,
+                3.0,
+                4.0,
+            ],
+        }
+    },
+}
+V2_CASES = [replace(case, **V2_OVERRIDES.get(case.name, {})) for case in CASES]

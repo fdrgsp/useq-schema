@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
 from heapq import merge
+from itertools import product
 from typing import TYPE_CHECKING, Any
 
 from useq._autofocus_base import _AxesTrigger
@@ -39,7 +40,7 @@ def _iter_axis(seq: MDASequence, ax: str) -> tuple[Channel | float | PositionBas
 
 @cache
 def _sizes(seq: MDASequence) -> dict[str, int]:
-    return {k: len(list(_iter_axis(seq, k))) for k in seq.axis_order}
+    return {k: len(_iter_axis(seq, k)) for k in seq.axis_order}
 
 
 @cache
@@ -67,19 +68,13 @@ def _iter_plan_product(
 ) -> Iterator[tuple[_AxisSelection, MDASequence]]:
     """Iterate one position branch's effective axis plans."""
     prefix = {} if prefix is None else prefix
-    if not axes:
-        if prefix:
-            yield prefix, active_sequence
-        return
-
-    current, *remaining = axes
-    for idx, value in enumerate(current.values):
-        branch_prefix = {**prefix, current.key: (idx, value, current)}
-        yield from _iter_plan_product(
-            tuple(remaining),
-            prefix=branch_prefix,
-            active_sequence=active_sequence,
-        )
+    for combination in product(*(enumerate(axis.values) for axis in axes)):
+        selection = {
+            axis.key: (idx, value, axis)
+            for axis, (idx, value) in zip(axes, combination, strict=True)
+        }
+        if prefix or selection:
+            yield {**prefix, **selection}, active_sequence
 
 
 def _iter_axis_combinations(
@@ -220,10 +215,7 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
     """
     last_t_idx = -1
     last_p_idx = -1
-    # The index each axes-based autofocus plan last saw, kept *here* rather than on
-    # the plan, so that every iteration of a sequence -- or of a copy of one --
-    # triggers autofocus exactly as the first did.  Keyed by identity: per-position
-    # sub-sequences each carry a plan of their own, which sees only their events.
+    # Keep trigger state per iteration and per plan, including position subsequences.
     af_previous: dict[int, Mapping[str, int]] = {}
     for selection, active_sequence in _iter_axis_combinations(sequence):
         index, time, position, grid, channel, z_pos = _parse_axes(

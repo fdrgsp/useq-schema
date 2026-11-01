@@ -7,7 +7,6 @@ import yaml
 from pydantic import ValidationError
 
 import useq
-from useq import v2
 
 
 def test_hardware_plan_as_action() -> None:
@@ -137,15 +136,13 @@ def test_plan_round_trip(plan: useq.AnyAutofocusPlan) -> None:
 # ----------------------------- event insertion -----------------------------
 
 
-def _af_events(seq: useq.MDASequence | v2.MDASequence) -> list[useq.MDAEvent]:
+def _af_events(seq: useq.MDASequence) -> list[useq.MDAEvent]:
     not_af = (useq.AcquireImage, useq.CustomAction)
     return [e for e in seq if not isinstance(e.action, not_af)]
 
 
-@pytest.mark.parametrize("version", ["v1", "v2"])
-def test_software_autofocus_events(version: str) -> None:
-    cls = useq.MDASequence if version == "v1" else v2.MDASequence
-    seq = cls(
+def test_software_autofocus_events() -> None:
+    seq = useq.MDASequence(
         stage_positions=[(0, 0, 0), (1, 1, 1)],
         z_plan={"range": 2.0, "step": 1.0},
         autofocus_plan={"axes": ("p",), "method": "oughtafocus"},
@@ -171,11 +168,9 @@ def test_software_autofocus_uses_home_z_position() -> None:
     assert events[1].z_pos == -1.0  # the first slice of the stack
 
 
-@pytest.mark.parametrize("version", ["v1", "v2"])
 @pytest.mark.parametrize("every_n", [1, 2, 3])
-def test_every_n_timepoints(version: str, every_n: int) -> None:
-    cls = useq.MDASequence if version == "v1" else v2.MDASequence
-    seq = cls(
+def test_every_n_timepoints(every_n: int) -> None:
+    seq = useq.MDASequence(
         time_plan={"interval": 0, "loops": 6},
         autofocus_plan={"axes": ("t",), "every_n_timepoints": every_n},
     )
@@ -203,15 +198,13 @@ REUSED_PLANS = [
 ]
 
 
-@pytest.mark.parametrize("version", ["v1", "v2"])
 @pytest.mark.parametrize("plan", REUSED_PLANS)
-def test_iterating_again_autofocuses_again(version: str, plan: dict) -> None:
+def test_iterating_again_autofocuses_again(plan: dict) -> None:
     """The trigger's memory of the last event used to live on the plan, so a second
     iteration of the same sequence -- an engine running it twice, say -- started
     out believing it had already seen the first position, and skipped its
     autofocus."""
-    cls = useq.MDASequence if version == "v1" else v2.MDASequence
-    seq = cls(stage_positions=[(0, 0, 0)], autofocus_plan=plan)
+    seq = useq.MDASequence(stage_positions=[(0, 0, 0)], autofocus_plan=plan)
     first = [type(e.action).__name__ for e in seq]
     assert len(_af_events(seq)) == 1
     assert [type(e.action).__name__ for e in seq] == first

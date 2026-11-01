@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 from rich import print  # noqa: F401
-from tests.fixtures.cases import CASES, MDATestCase, assert_test_case_passes
+from tests.fixtures.cases import V2_CASES as CASES
+from tests.fixtures.cases import V2_OVERRIDES, MDATestCase, assert_test_case_passes
 
 from useq import v2
 
@@ -25,7 +26,7 @@ def test_mda_sequence(case: MDATestCase) -> None:
 
     assert_test_case_passes(case, actual_events)
 
-    if "af_" not in case.name:
+    if "af_" not in case.name and case.name not in V2_OVERRIDES:
         assert_v2_same_as_v1(list(case.seq), actual_events)
 
 

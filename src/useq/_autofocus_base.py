@@ -30,7 +30,7 @@ class _AutofocusPlanBase(FrozenModel):
         """Return an autofocus [`useq.MDAEvent`][] if autofocus should be performed.
 
         The z position of the new [`useq.MDAEvent`][] is also updated if a relative
-        zplan is provided since autofocus shuld be performed on the home z stack
+        zplan is provided since autofocus should be performed on the home z stack
         position.
         """
         if not self.should_autofocus(event):
@@ -78,11 +78,7 @@ class _AxesTrigger(FrozenModel):
 
     axes: tuple[str, ...]
     every_n_timepoints: int = Field(default=1, ge=1)
-    # Only for `should_autofocus` called on its own. Iterating a sequence does not
-    # use it: state kept on the plan outlived the iteration, so the next iteration
-    # of the same sequence -- or of a copy, which copies private attributes too --
-    # started out believing it had already seen the first position, and skipped
-    # its autofocus.
+    # Direct calls remember their previous event; sequence iterations own their state.
     _previous: dict = PrivateAttr(default_factory=dict)
 
     def should_autofocus(self, event: MDAEvent) -> bool:

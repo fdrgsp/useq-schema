@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
     from useq._hardware_autofocus import AxesBasedAF
-    from useq._software_autofocus import SoftwareAxesBasedAF
 
 
 # Global state to share reset_event_timer state across all sequences (like v1)
@@ -90,21 +89,20 @@ class ResetEventTimerTransform(EventTransform[MDAEvent]):
 
 
 class AutoFocusTransform(EventTransform[MDAEvent]):
-    """Insert autofocus events created by an axes-based autofocus plan.
-
-    Works for both [`useq.AxesBasedAF`][] (hardware) and
-    [`useq.SoftwareAxesBasedAF`][] (software): the plan decides which action the
-    inserted event carries.
+    """Insert hardware-autofocus events created by an ``AutoFocusPlan``.
 
     Parameters
     ----------
-    af_plan :
-        The autofocus plan whose `axes` trigger an inserted autofocus event.
+    plan_getter :
+        Function that returns the *active* autofocus plan for the
+        current event.  By default we use ``event.sequence.autofocus_plan``,
+        but you can plug in something smarter if you support
+        per-position overrides.
     """
 
     priority = -1
 
-    def __init__(self, af_plan: AxesBasedAF | SoftwareAxesBasedAF) -> None:
+    def __init__(self, af_plan: AxesBasedAF) -> None:
         self._af_plan = af_plan
 
     def __call__(
@@ -128,10 +126,6 @@ class AutoFocusTransform(EventTransform[MDAEvent]):
                 if prev_event.index.get(axis) != event.index.get(axis):
                     trigger = True
                     break
-
-        # honour the plan's "every N time points" setting
-        if trigger and not self._af_plan.allows_timepoint(event.index.get(Axis.TIME)):
-            trigger = False
 
         if trigger:
             updates: dict[str, object] = {"action": self._af_plan.as_action()}

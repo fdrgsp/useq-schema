@@ -64,3 +64,6 @@ class AxesBasedAF(_AxesTrigger, AutoFocusPlan):
         Only autofocus on time points whose index is a multiple of this number.
         By default, `1`: every time point.
     """
+
+
+AnyAutofocusPlan = AxesBasedAF
