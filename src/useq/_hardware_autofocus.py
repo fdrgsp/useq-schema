@@ -60,6 +60,10 @@ class AxesBasedAF(_AxesTrigger, AutoFocusPlan):
         *any* axis in this tuple is change, autofocus will be performed.  For example,
         if `axes` is `('p',)` then autofocus will be performed every time the `p` axis
         is change, (in other words: every time the position is changed.).
+    every_n_positions : int
+        Trigger on every Nth position, starting with the first. By default, 1.
+    every_n_grid_positions : int
+        Trigger on every Nth grid tile, starting with the first. By default, 1.
     every_n_timepoints : int
         Only autofocus on time points whose index is a multiple of this number.
         By default, `1`: every time point.

@@ -53,6 +53,10 @@ class SoftwareAxesBasedAF(_AxesTrigger, SoftwareAutofocusPlan):
     axes : Tuple[str, ...]
         Tuple of axis label to use for software autofocus.  At every event in which
         *any* axis in this tuple is change, autofocus will be performed.
+    every_n_positions : int
+        Trigger on every Nth position, starting with the first. By default, 1.
+    every_n_grid_positions : int
+        Trigger on every Nth grid tile, starting with the first. By default, 1.
     every_n_timepoints : int
         Only autofocus on time points whose index is a multiple of this number.
         By default, `1`: every time point.

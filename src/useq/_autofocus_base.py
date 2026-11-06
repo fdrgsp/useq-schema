@@ -71,12 +71,18 @@ class _AxesTrigger(FrozenModel):
         *any* axis in this tuple is change, autofocus will be performed.  For example,
         if `axes` is `('p',)` then autofocus will be performed every time the `p` axis
         is change, (in other words: every time the position is changed.).
+    every_n_positions : int
+        Trigger on position indices that are multiples of this number. Default: 1.
+    every_n_grid_positions : int
+        Trigger on grid tile indices that are multiples of this number. Default: 1.
     every_n_timepoints : int
         Only autofocus on time points whose index is a multiple of this number,
         regardless of which axis triggered it.  By default, `1`: every time point.
     """
 
     axes: tuple[str, ...]
+    every_n_positions: int = Field(default=1, ge=1)
+    every_n_grid_positions: int = Field(default=1, ge=1)
     every_n_timepoints: int = Field(default=1, ge=1)
     # Direct calls remember their previous event; sequence iterations own their state.
     _previous: dict = PrivateAttr(default_factory=dict)
@@ -84,8 +90,8 @@ class _AxesTrigger(FrozenModel):
     def should_autofocus(self, event: MDAEvent) -> bool:
         """Return `True` if autofocus should be performed at this event.
 
-        Will return `True` if any of the axes specified in `axes` have changed from the
-        previous event, unless `every_n_timepoints` excludes this time point.
+        Return `True` when a selected axis changes at its configured interval,
+        unless `every_n_timepoints` excludes this time point.
 
         Called on its own, the "previous event" is the one this plan was last
         asked about.  Iterating an [`useq.MDASequence`][] instead keeps that record
@@ -100,8 +106,14 @@ class _AxesTrigger(FrozenModel):
         `previous` is the index of the event before it, or empty for the first.
         Unlike `should_autofocus`, this keeps no state of its own.
         """
+        intervals: dict[str, int] = {
+            Axis.POSITION: self.every_n_positions,
+            Axis.GRID: self.every_n_grid_positions,
+        }
         if not any(
-            axis in self.axes and previous.get(axis) != index
+            axis in self.axes
+            and previous.get(axis) != index
+            and index % intervals.get(axis, 1) == 0
             for axis, index in event.index.items()
         ):
             return False

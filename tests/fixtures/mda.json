@@ -5,6 +5,8 @@
     "axes": [
       "c"
     ],
+    "every_n_positions": 1,
+    "every_n_grid_positions": 1,
     "every_n_timepoints": 1,
     "max_retries": 3,
     "search_above_um": 0.0,

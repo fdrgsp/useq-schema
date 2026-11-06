@@ -271,3 +271,61 @@ def test_absolute_z_plan_rejected_per_position(plan: dict) -> None:
                 {"x": 0, "y": 0, "sequence": {"autofocus_plan": plan}},
             ],
         )
+
+
+@pytest.mark.parametrize("kind", ["hardware", "software"])
+@pytest.mark.parametrize(
+    "axis,field", [("p", "every_n_positions"), ("g", "every_n_grid_positions")]
+)
+@pytest.mark.parametrize("every_n", [1, 2, 3])
+def test_spatial_autofocus_intervals(kind, axis, field, every_n):
+    settings = {"axes": (axis,), field: every_n}
+    if kind == "software":
+        settings["method"] = "oughtafocus"
+    seq = useq.MDASequence(
+        stage_positions=[(i, i, 0) for i in range(5)]
+        if axis == "p"
+        else [(0, 0, 0), (1, 1, 0)],
+        grid_plan={"rows": 1, "columns": 5} if axis == "g" else None,
+        time_plan={"interval": 0, "loops": 4},
+        autofocus_plan={**settings, "every_n_timepoints": 2},
+    )
+    expected = [
+        (t, p, g)
+        for t in (0, 2)
+        for p in (range(0, 5, every_n) if axis == "p" else range(2))
+        for g in (range(0, 5, every_n) if axis == "g" else [None])
+    ]
+    for sequence in (seq, useq.MDASequence.model_validate_json(seq.model_dump_json())):
+        for _ in range(2):
+            assert [
+                (e.index["t"], e.index["p"], e.index.get("g"))
+                for e in _af_events(sequence)
+            ] == expected
+
+
+@pytest.mark.parametrize("field", ["every_n_positions", "every_n_grid_positions"])
+@pytest.mark.parametrize("value", [0, -1])
+@pytest.mark.parametrize("plan_type", [useq.AxesBasedAF, useq.SoftwareAxesBasedAF])
+def test_spatial_autofocus_intervals_must_be_positive(field, value, plan_type):
+    with pytest.raises(ValidationError):
+        plan_type(axes=("p", "g"), **{field: value})
+
+
+def test_spatial_triggers_are_independent_and_coalesced():
+    seq = useq.MDASequence(
+        stage_positions=[(i, i, 0) for i in range(3)],
+        grid_plan={"rows": 1, "columns": 5},
+        autofocus_plan={
+            "axes": ("p", "g"),
+            "every_n_positions": 2,
+            "every_n_grid_positions": 3,
+        },
+    )
+    assert [(e.index["p"], e.index["g"]) for e in _af_events(seq)] == [
+        (p, g) for p in range(3) for g in (0, 3)
+    ]
+    plan = seq.autofocus_plan
+    assert plan.should_autofocus(useq.MDAEvent(index={"p": 0, "g": 0}))
+    assert not plan.should_autofocus(useq.MDAEvent(index={"p": 0, "g": 1}))
+    assert plan.should_autofocus(useq.MDAEvent(index={"p": 2, "g": 2}))
