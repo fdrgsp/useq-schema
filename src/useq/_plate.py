@@ -22,7 +22,7 @@ from pydantic import (
 
 from useq._base_model import FrozenModel, UseqModel
 from useq._enums import Shape
-from useq._grid import RandomPoints, RelativeMultiPointPlan
+from useq._grid import GridFromShape, RandomPoints, RelativeMultiPointPlan
 from useq._plate_registry import _PLATE_REGISTRY
 from useq._position import Position, PositionBase, RelativePosition
 
@@ -151,10 +151,13 @@ class WellPlatePlan(UseqModel, Sequence[Position]):
         -   slice(1, 5) -> selects wells from row 1 to row 4.
         -   (2, slice(1, 4)) -> select wells in the second row and only columns 1 to 3.
         -   ([1, 2], [3, 4]) -> select wells in (row, column): (1, 3) and (2, 4)
-    well_points_plan : GridRowsColumns | RandomPoints | Position
+    well_points_plan : GridRowsColumns | GridFromShape | RandomPoints | Position
         A plan for acquiring images within each well. This can be a single position
         (for a single image per well), a GridRowsColumns (for a grid of images),
-        or RandomPoints (for random points within each well).
+        a GridFromShape (for tiles covering an area of each well), or RandomPoints
+        (for random points within each well). If a GridFromShape does not explicitly
+        set `rotation`, the plate rotation is used so that the covered area rotates
+        with the plate while tiles stay aligned with the stage axes.
     """
 
     plate: WellPlate
@@ -202,6 +205,12 @@ class WellPlatePlan(UseqModel, Sequence[Position]):
                         Shape.ELLIPSE if plate.circular_wells else Shape.RECTANGLE
                     )
                 value = RandomPoints(**kwargs)
+        if (
+            isinstance(value, GridFromShape)
+            and "rotation" not in value.model_fields_set
+            and (rotation := info.data.get("rotation"))
+        ):
+            value = value.replace(rotation=rotation)
         return value
 
     @field_validator("rotation", mode="before")

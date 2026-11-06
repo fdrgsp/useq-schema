@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import math
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -8,6 +9,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    Literal,
     Self,
     TypeAlias,
 )
@@ -639,6 +641,390 @@ class GridFromPolygon(_GridPlan[AbsolutePosition]):
         )
 
 
+# ------------------------ SHAPE COVERAGE ------------------------
+
+# Upper bound on the number of candidate lattice cells evaluated by GridFromShape.
+# Plans that would exceed it raise instead of allocating (or truncating) tiles.
+MAX_SHAPE_GRID_CANDIDATES = 1_000_000
+# Relative tolerance used when deciding whether a footprint touches the area.
+# Tangent-only tiles are retained, so boundary points are never left uncovered.
+_SHAPE_TOL = 1e-9
+
+
+class GridFromShape(_GridPlan[RelativePosition]):
+    """Relative grid plan of tiles covering a rectangular or elliptical area.
+
+    The area is centered at the origin (e.g. the center of a well) and tiled with a
+    regular lattice of `fov_width` x `fov_height` fields of view, spaced according to
+    `overlap` and centered on the origin. How tiles are placed at the area boundary
+    depends on `placement`:
+
+    - ``"cover"`` (default): the lattice spans the bounding box of the area and only
+      tiles whose *footprint intersects* the area are kept. Edge tiles may extend
+      outside the area (and some tile centers may lie outside it), but the union of
+      all tiles always covers the whole area, including its boundary.
+    - ``"inside"``: the lattice fits within the bounding box of the area and only
+      tiles *entirely inside* the area are kept. No tile extends outside the area, but
+      parts of the area near its boundary are not imaged. If no tile fits, the plan
+      has no positions.
+
+    The number of tiles is derived from the area, the field of view size and the
+    overlap; it is not user-specified, nor is it globally minimized. Squares and
+    circles are expressed with equal `width` and `height`.
+
+    Attributes
+    ----------
+    shape : Shape
+        Shape of the area to cover: "rectangle" or "ellipse".
+    width : float
+        Width of the area to cover, in microns (not a bound on tile centers).
+    height : float
+        Height of the area to cover, in microns (not a bound on tile centers).
+    placement : Literal["cover", "inside"]
+        Whether tiles cover the whole area (edge tiles may extend outside of it), or
+        are all entirely inside the area (its boundary may be left unimaged). By
+        default, "cover".
+    rotation : float
+        Anti-clockwise rotation, in degrees, of the area relative to the stage axes.
+        Tiles always stay aligned with the stage (camera) axes. When used as the
+        `well_points_plan` of a `WellPlatePlan` and not explicitly set, the plate
+        rotation is used.
+    overlap : float | Tuple[float, float]
+        Overlap between neighboring tiles in percent, ``0 <= overlap < 100``. If a
+        single value is provided, it is used for both x and y.
+    mode : OrderMode
+        Order in which the lattice (row, column) indices are visited. Tiles that do
+        not intersect the area are skipped while retaining that order, and keep the
+        `grid_row`/`grid_col` of their lattice cell. By default, row_wise_snake.
+    fov_width : Optional[float]
+        Width of the field of view in microns. Required to evaluate the plan. If not
+        provided, acquisition engines should set it from the current objective/camera.
+    fov_height : Optional[float]
+        Height of the field of view in microns. Required to evaluate the plan. If not
+        provided, acquisition engines should set it from the current objective/camera.
+    """
+
+    shape: Shape = Field(..., frozen=True)
+    width: float = Field(..., frozen=True, gt=0, allow_inf_nan=False)
+    height: float = Field(..., frozen=True, gt=0, allow_inf_nan=False)
+    placement: Literal["cover", "inside"] = Field(default="cover", frozen=True)
+    rotation: float = Field(default=0.0, frozen=True, allow_inf_nan=False)
+
+    @field_validator("overlap", mode="after")
+    @classmethod
+    def _validate_overlap_range(cls, v: tuple[float, float]) -> tuple[float, float]:
+        if not all(math.isfinite(o) and 0 <= o < 100 for o in v):
+            raise ValueError("overlap must be >= 0 and < 100 on each axis.")
+        return v
+
+    @property
+    def is_relative(self) -> bool:
+        return True
+
+    def num_positions(self) -> int:
+        """Return the exact number of tiles.
+
+        Raises a ValueError if the field of view size is not set or is invalid, or if
+        the area would require more than `MAX_SHAPE_GRID_CANDIDATES` lattice cells.
+        """
+        return len(self.tile_coordinates())
+
+    def __iter__(self) -> Iterator[RelativePosition]:  # type: ignore [override]
+        yield from self.iter_grid_positions()
+
+    def iter_grid_positions(
+        self,
+        fov_width: float | None = None,
+        fov_height: float | None = None,
+        *,
+        order: OrderMode | None = None,
+    ) -> Iterator[RelativePosition]:
+        """Iterate over the tiles covering the area, given a field of view size."""
+        tiles = self.tile_coordinates(fov_width, fov_height, order=order)
+        for idx, (x, y, r, c) in enumerate(tiles):
+            yield RelativePosition(
+                x=x, y=y, grid_row=r, grid_col=c, name=f"{str(idx).zfill(4)}"
+            )
+
+    def tile_coordinates(
+        self,
+        fov_width: float | None = None,
+        fov_height: float | None = None,
+        *,
+        order: OrderMode | None = None,
+    ) -> tuple[tuple[float, float, int, int], ...]:
+        """Return the ordered ``(x, y, grid_row, grid_col)`` of all tiles.
+
+        This is the single implementation used for iteration and counting; it is
+        cheaper than iterating when only coordinates are needed (e.g. for drawing).
+        """
+        fw, fh = _validate_fov(
+            fov_width or self.fov_width, fov_height or self.fov_height
+        )
+        mode = self.mode if order is None else OrderMode(order)
+        return _shape_tiles(
+            self.shape,
+            self.width,
+            self.height,
+            self.rotation,
+            self.overlap,
+            fw,
+            fh,
+            mode,
+            self.placement,
+        )
+
+    def bounding_size(self) -> tuple[float, float]:
+        """Return the (width, height) of the axis-aligned bounding box of the area."""
+        return _bounding_size(self.shape, self.width, self.height, self.rotation)
+
+    def boundary_vertices(self, n: int = 128) -> list[tuple[float, float]]:
+        """Return vertices of the (rotated) area outline, e.g. for drawing.
+
+        Ellipses are approximated with `n` points: these vertices are for display and
+        are not used to decide coverage.
+        """
+        w2, h2 = self.width / 2, self.height / 2
+        if self.shape == Shape.RECTANGLE:
+            pts = np.array([(-w2, h2), (w2, h2), (w2, -h2), (-w2, -h2)])
+        else:
+            ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
+            pts = np.column_stack((w2 * np.cos(ang), h2 * np.sin(ang)))
+        t = math.radians(self.rotation)
+        rot = np.array([[math.cos(t), -math.sin(t)], [math.sin(t), math.cos(t)]])
+        return [(float(x), float(y)) for x, y in pts @ rot.T]
+
+    def plot(
+        self,
+        *,
+        axes: Axes | None = None,
+        aspect_ratio_multiplier: float = 5.0,
+        hide_axes: bool = False,
+        show: bool = True,
+    ) -> Axes:
+        """Plot the tiles and the outline of the covered area."""
+        from useq._plot import plot_points
+
+        rect = None
+        if self.fov_width is not None and self.fov_height is not None:
+            rect = (self.fov_width, self.fov_height)
+        return plot_points(
+            self,
+            rect_size=rect,
+            bounding_poly=self.boundary_vertices(),
+            ax=axes,
+            aspect_ratio_multiplier=aspect_ratio_multiplier,
+            hide_axes=hide_axes,
+            show=show,
+        )
+
+
+def _validate_fov(
+    fov_width: float | None, fov_height: float | None
+) -> tuple[float, float]:
+    """Return a valid (width, height) field of view or raise ValueError."""
+    if fov_width is None or fov_height is None:
+        raise ValueError(
+            "GridFromShape requires the field of view size "
+            "(`fov_width` and `fov_height`) to be set."
+        )
+    fw, fh = float(fov_width), float(fov_height)
+    if not (math.isfinite(fw) and math.isfinite(fh) and fw > 0 and fh > 0):
+        raise ValueError(
+            f"Field of view size must be positive and finite, got ({fw}, {fh})."
+        )
+    return fw, fh
+
+
+def _n_tiles_inside(span: float, fov: float, step: float) -> int:
+    """Return the max number of tiles of size `fov` and spacing `step` within `span`.
+
+    One FOV plus (n - 1) steps must fit in the span (0 if one FOV doesn't fit).
+    """
+    if span < fov * (1 - _SHAPE_TOL):
+        return 0
+    extra = max(0.0, span - fov) / step
+    return math.floor(extra + _SHAPE_TOL * max(1.0, extra)) + 1
+
+
+def _n_tiles(span: float, fov: float, step: float) -> int:
+    """Return the number of tiles of size `fov` and spacing `step` covering `span`.
+
+    One FOV plus (n - 1) steps must cover the span. A tiny tolerance avoids adding
+    an extra row/column because of floating-point noise at exact divisibility.
+    """
+    extra = max(0.0, span - fov) / step
+    return max(1, math.ceil(extra - _SHAPE_TOL * max(1.0, extra)) + 1)
+
+
+def _bounding_size(
+    shape: Shape, width: float, height: float, rotation: float
+) -> tuple[float, float]:
+    t = math.radians(rotation)
+    c, s = abs(math.cos(t)), abs(math.sin(t))
+    if shape == Shape.RECTANGLE:
+        return width * c + height * s, width * s + height * c
+    a, b = width / 2, height / 2
+    return (
+        2 * math.sqrt((a * c) ** 2 + (b * s) ** 2),
+        2 * math.sqrt((a * s) ** 2 + (b * c) ** 2),
+    )
+
+
+# pure function of the geometry, so that the plan models carry no cached state
+# (pydantic equality would otherwise compare caches).
+@functools.lru_cache(maxsize=64)
+def _shape_tiles(
+    shape: Shape,
+    width: float,
+    height: float,
+    rotation: float,
+    overlap: tuple[float, float],
+    fw: float,
+    fh: float,
+    mode: OrderMode,
+    placement: str = "cover",
+) -> tuple[tuple[float, float, int, int], ...]:
+    sx = fw * (1 - overlap[0] / 100)
+    sy = fh * (1 - overlap[1] / 100)
+    bw, bh = _bounding_size(shape, width, height, rotation)
+    inside = placement == "inside"
+    n_tiles = _n_tiles_inside if inside else _n_tiles
+    ncols = n_tiles(bw, fw, sx)
+    nrows = n_tiles(bh, fh, sy)
+    if not ncols or not nrows:
+        return ()
+    if ncols * nrows > MAX_SHAPE_GRID_CANDIDATES:
+        raise ValueError(
+            f"Covering a {width:g} x {height:g} µm area with {fw:g} x {fh:g} µm "
+            f"fields of view requires {nrows} x {ncols} candidate tiles, more than "
+            f"the supported maximum of {MAX_SHAPE_GRID_CANDIDATES}."
+        )
+    xs = (np.arange(ncols) - (ncols - 1) / 2) * sx
+    ys = ((nrows - 1) / 2 - np.arange(nrows)) * sy
+    cx, cy = np.meshgrid(xs, ys)  # shape (nrows, ncols)
+    if inside:
+        mask = _footprints_inside(shape, width, height, rotation, cx, cy, fw, fh)
+    else:
+        mask = _footprints_intersect(shape, width, height, rotation, cx, cy, fw, fh)
+    return tuple(
+        (float(xs[c]), float(ys[r]), r, c)
+        for r, c in mode.generate_indices(nrows, ncols)
+        if mask[r, c]
+    )
+
+
+def _footprints_intersect(
+    shape: Shape,
+    width: float,
+    height: float,
+    rotation: float,
+    cx: np.ndarray,
+    cy: np.ndarray,
+    fw: float,
+    fh: float,
+) -> np.ndarray:
+    """Return a mask of the fw x fh tiles centered at (cx, cy) touching the area.
+
+    The axis-aligned case is analytic: with `q` the point of each footprint nearest to
+    the area center, a footprint intersects an ellipse with radii (a, b) iff
+    ``(qx/a)**2 + (qy/b)**2 <= 1``, and a rectangle iff q lies within its half sizes.
+    """
+    is_circle = shape == Shape.ELLIPSE and width == height
+    quarter_turns = rotation / 90
+    if not (
+        is_circle or math.isclose(quarter_turns, round(quarter_turns), abs_tol=1e-12)
+    ):
+        return _rotated_footprints_intersect(
+            shape, width, height, rotation, cx, cy, fw, fh
+        )
+
+    w, h = width, height
+    if not is_circle and round(quarter_turns) % 2:
+        w, h = h, w  # rotated by an odd multiple of 90°
+    qx = np.maximum(np.abs(cx) - fw / 2, 0)
+    qy = np.maximum(np.abs(cy) - fh / 2, 0)
+    if shape == Shape.RECTANGLE:
+        tol = 1 + _SHAPE_TOL
+        return (qx <= w / 2 * tol) & (qy <= h / 2 * tol)
+    return (qx / (w / 2)) ** 2 + (qy / (h / 2)) ** 2 <= 1 + _SHAPE_TOL
+
+
+def _footprints_inside(
+    shape: Shape,
+    width: float,
+    height: float,
+    rotation: float,
+    cx: np.ndarray,
+    cy: np.ndarray,
+    fw: float,
+    fh: float,
+) -> np.ndarray:
+    """Return a mask of the fw x fh tiles centered at (cx, cy) entirely inside the area.
+
+    Both shapes are convex, so a tile is inside iff its four corners are. Corners are
+    mapped into the area frame (inverse rotation) and tested exactly.
+    """
+    t = math.radians(rotation)
+    cos_t, sin_t = math.cos(t), math.sin(t)
+    tol = 1 + _SHAPE_TOL
+    inside = np.ones(cx.shape, dtype=bool)
+    for dx, dy in (
+        (-fw / 2, -fh / 2),
+        (fw / 2, -fh / 2),
+        (fw / 2, fh / 2),
+        (-fw / 2, fh / 2),
+    ):
+        x, y = cx + dx, cy + dy
+        u = x * cos_t + y * sin_t
+        v = -x * sin_t + y * cos_t
+        if shape == Shape.RECTANGLE:
+            inside &= (np.abs(u) <= width / 2 * tol) & (np.abs(v) <= height / 2 * tol)
+        else:
+            inside &= (u / (width / 2)) ** 2 + (v / (height / 2)) ** 2 <= tol
+    return inside
+
+
+def _rotated_footprints_intersect(
+    shape: Shape,
+    width: float,
+    height: float,
+    rotation: float,
+    cx: np.ndarray,
+    cy: np.ndarray,
+    fw: float,
+    fh: float,
+) -> np.ndarray:
+    """Exact intersection test for an area rotated relative to the stage axes.
+
+    Footprint corners are mapped into the area's frame (and, for ellipses, scaled so
+    that the ellipse becomes the unit circle). The affine map preserves intersection,
+    so the test reduces to polygon/box intersection, or to the distance between the
+    transformed footprint (a parallelogram) and the origin being <= 1. No polygonal
+    approximation of the ellipse is involved.
+    """
+    import shapely
+
+    t = math.radians(rotation)
+    # inverse rotation (stage frame -> area frame)
+    inv = np.array([[math.cos(t), math.sin(t)], [-math.sin(t), math.cos(t)]])
+    if shape == Shape.ELLIPSE:
+        inv = np.diag([2 / width, 2 / height]) @ inv
+    offsets = np.array(
+        [(-fw / 2, -fh / 2), (fw / 2, -fh / 2), (fw / 2, fh / 2), (-fw / 2, fh / 2)]
+    )
+    centers = np.column_stack((cx.ravel(), cy.ravel()))
+    corners = (centers[:, None, :] + offsets[None, :, :]) @ inv.T  # (N, 4, 2)
+    polys = shapely.polygons(corners)
+    if shape == Shape.ELLIPSE:
+        mask = shapely.distance(polys, shapely.Point(0, 0)) <= 1 + _SHAPE_TOL
+    else:
+        w2 = width / 2 * (1 + _SHAPE_TOL)
+        h2 = height / 2 * (1 + _SHAPE_TOL)
+        mask = shapely.intersects(polys, box(-w2, -h2, w2, h2))
+    return np.asarray(mask, dtype=bool).reshape(cx.shape)
+
+
 # ------------------------ RANDOM ------------------------
 
 
@@ -793,8 +1179,11 @@ _POINTS_GENERATORS: dict[Shape, PointGenerator] = {
 
 
 # all of these support __iter__() -> Iterator[PositionBase] and num_positions() -> int
+# NOTE: GridFromShape must precede GridWidthHeight: these unions are validated
+# left-to-right with extra fields ignored, and a GridFromShape dict (which always
+# includes the required `shape`) would otherwise also validate as GridWidthHeight.
 RelativeMultiPointPlan = (
-    GridRowsColumns | GridWidthHeight | RandomPoints | RelativePosition
+    GridRowsColumns | GridFromShape | GridWidthHeight | RandomPoints | RelativePosition
 )
 AbsoluteMultiPointPlan = GridFromEdges | GridFromPolygon
 MultiPointPlan = AbsoluteMultiPointPlan | RelativeMultiPointPlan

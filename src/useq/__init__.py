@@ -22,6 +22,7 @@ from useq._enums import Axis, Shape
 from useq._grid import (
     GridFromEdges,
     GridFromPolygon,
+    GridFromShape,
     GridRowsColumns,
     GridWidthHeight,
     MultiPointPlan,
@@ -71,6 +72,7 @@ __all__ = [
     "EventChannel",
     "GridFromEdges",
     "GridFromPolygon",
+    "GridFromShape",
     "GridRelative",
     "GridRowsColumns",
     "GridWidthHeight",
