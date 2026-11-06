@@ -84,7 +84,9 @@ class _CompiledSurface:
 
         self._method = surface.method
         design = np.column_stack([unit, np.ones(n)])
-        self._plane: NDArray[np.float64] = np.linalg.lstsq(design, self._z)[0]
+        self._plane: NDArray[np.float64] = np.linalg.lstsq(design, self._z, rcond=None)[
+            0
+        ]
         self._triangles, hull = _delaunay(unit)
         self.hull: NDArray[np.float64] = xy[hull]
         self._hull_edges = np.column_stack([hull, np.roll(hull, -1)])
