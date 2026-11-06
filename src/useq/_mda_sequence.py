@@ -18,6 +18,7 @@ from useq._autofocus_base import _AutofocusPlanBase
 from useq._base_model import UseqModel
 from useq._channel import Channel
 from useq._enums import AXES, Axis
+from useq._focus_surface import FocusSurface  # noqa: TC001
 from useq._grid import MultiPointPlan  # noqa: TC001
 from useq._iter_sequence import iter_sequence
 from useq._plate import WellPlatePlan
@@ -68,6 +69,11 @@ class MDASequence(UseqModel):
         generated, do not set.
     autofocus_plan : AxesBasedAF | None
         The hardware autofocus plan to follow. One of `AxesBasedAF` or `None`.
+    focus_surface : FocusSurface | None
+        A surface `z = f(x, y)` through manually focused reference points. Events at a
+        position without its own `z` get the surface Z at their XY (e.g. each grid
+        tile's), plus their relative Z plan and channel offsets. Cannot be combined
+        with an absolute Z plan. By default, `None`.
     setup : MDAEvent | None
         An optional setup event for the sequence. This event is **not** yielded
         during iteration; it is intended to be handled separately by the engine.
@@ -237,6 +243,7 @@ class MDASequence(UseqModel):
     time_plan: AnyTimePlan | None = None
     z_plan: AnyZPlan | None = None
     autofocus_plan: AnyAutofocusPlan | None = None
+    focus_surface: FocusSurface | None = None
     setup: MDAEvent | None = None
     keep_shutter_open_across: tuple[str, ...] = Field(default_factory=tuple)
 
@@ -360,6 +367,15 @@ class MDASequence(UseqModel):
 
     @model_validator(mode="after")
     def _validate_mda(self) -> Self:
+        if (
+            self.focus_surface is not None
+            and self.z_plan
+            and not self.z_plan.is_relative
+        ):
+            raise ValueError(
+                "focus_surface cannot be used with an absolute z_plan: its Z positions "
+                "ignore the surface."
+            )
         if self.axis_order:
             self._check_order(
                 self.axis_order,

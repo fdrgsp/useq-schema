@@ -49,6 +49,7 @@
       "z_offset": 0.0
     }
   ],
+  "focus_surface": null,
   "grid_plan": {
     "columns": 1,
     "fov_height": null,
@@ -96,6 +97,7 @@
           "z"
         ],
         "channels": [],
+        "focus_surface": null,
         "grid_plan": {
           "columns": 3,
           "fov_height": null,

@@ -19,6 +19,7 @@ from useq._autofocus import (
 )
 from useq._channel import Channel
 from useq._enums import Axis, Shape
+from useq._focus_surface import FocusSurface
 from useq._grid import (
     GridFromEdges,
     GridFromPolygon,
@@ -70,6 +71,7 @@ __all__ = [
     "Channel",
     "CustomAction",
     "EventChannel",
+    "FocusSurface",
     "GridFromEdges",
     "GridFromPolygon",
     "GridFromShape",

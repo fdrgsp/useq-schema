@@ -15,8 +15,9 @@ from useq._position import Position
 from useq._z import AnyZPlan  # noqa: TC001  # noqa: TCH001
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping
 
+    from useq._focus_surface import FocusSurface
     from useq._mda_sequence import MDASequence
     from useq._position import PositionBase
 
@@ -215,6 +216,7 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
     """
     last_t_idx = -1
     last_p_idx = -1
+    surface_z = _surface_z(sequence.focus_surface) if sequence.focus_surface else None
     # Keep trigger state per iteration and per plan, including position subsequences.
     af_previous: dict[int, Mapping[str, int]] = {}
     for selection, active_sequence in _iter_axis_combinations(sequence):
@@ -230,7 +232,7 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
         event_kwargs: dict[str, Any] = {
             "sequence": sequence,
             "index": ReadOnlyDict(index),
-            **_xyzpos(position, channel, z_plan, grid, z_pos),
+            **_xyzpos(position, channel, z_plan, grid, z_pos, surface_z),
         }
         if position and position.name:
             event_kwargs["pos_name"] = position.name
@@ -326,25 +328,24 @@ def _should_skip(
     return False
 
 
+def _surface_z(surface: FocusSurface) -> Callable[[float, float], float]:
+    """Return a function giving the surface Z at an XY, computed once per XY."""
+
+    @cache
+    def z_at(x: float, y: float) -> float:
+        return float(surface.evaluate((x, y))[0])
+
+    return z_at
+
+
 def _xyzpos(
     position: Position | None,
     channel: Channel | None,
     z_plan: AnyZPlan | None,
     grid: PositionBase | None = None,
     z_pos: float | None = None,
+    surface_z: Callable[[float, float], float] | None = None,
 ) -> dict[str, float | None]:
-    if z_pos is not None:
-        # combine z_pos with z_offset
-        if channel and channel.z_offset is not None:
-            z_pos += channel.z_offset
-        if z_plan and z_plan.is_relative:
-            # TODO: either disallow without position z, or add concept of "current"
-            z_pos += getattr(position, Axis.Z, None) or 0
-    elif position:
-        z_pos = position.z
-        if z_pos is not None and channel and channel.z_offset is not None:
-            z_pos += channel.z_offset
-
     if grid:
         x_pos: float | None = grid.x
         y_pos: float | None = grid.y
@@ -356,5 +357,22 @@ def _xyzpos(
     else:
         x_pos = getattr(position, "x", None)
         y_pos = getattr(position, "y", None)
+
+    # the position's own z, else the focus surface's at this XY
+    base_z = getattr(position, Axis.Z, None)
+    if base_z is None and surface_z and x_pos is not None and y_pos is not None:
+        base_z = surface_z(x_pos, y_pos)
+
+    if z_pos is not None:
+        # combine z_pos with z_offset
+        if channel and channel.z_offset is not None:
+            z_pos += channel.z_offset
+        if z_plan and z_plan.is_relative:
+            # TODO: either disallow without position z, or add concept of "current"
+            z_pos += base_z or 0
+    else:
+        z_pos = base_z
+        if z_pos is not None and channel and channel.z_offset is not None:
+            z_pos += channel.z_offset
 
     return {"x_pos": x_pos, "y_pos": y_pos, "z_pos": z_pos}
