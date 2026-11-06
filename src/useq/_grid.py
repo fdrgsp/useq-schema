@@ -17,7 +17,7 @@ from typing import (
 import numpy as np
 from annotated_types import Ge, Gt
 from pydantic import Field, PrivateAttr, field_validator, model_validator
-from shapely import Polygon, box, prepared
+from shapely import Point, Polygon, box, distance, intersects, polygons, prepared
 
 from useq._enums import RelativeTo, Shape
 from useq._point_visiting import OrderMode, TraversalOrder
@@ -742,9 +742,7 @@ class GridFromShape(_GridPlan[RelativePosition]):
         """Iterate over the tiles covering the area, given a field of view size."""
         tiles = self.tile_coordinates(fov_width, fov_height, order=order)
         for idx, (x, y, r, c) in enumerate(tiles):
-            yield RelativePosition(
-                x=x, y=y, grid_row=r, grid_col=c, name=f"{str(idx).zfill(4)}"
-            )
+            yield RelativePosition(x=x, y=y, grid_row=r, grid_col=c, name=f"{idx:04d}")
 
     def tile_coordinates(
         self,
@@ -773,10 +771,6 @@ class GridFromShape(_GridPlan[RelativePosition]):
             mode,
             self.placement,
         )
-
-    def bounding_size(self) -> tuple[float, float]:
-        """Return the (width, height) of the axis-aligned bounding box of the area."""
-        return _bounding_size(self.shape, self.width, self.height, self.rotation)
 
     def boundary_vertices(self, n: int = 128) -> list[tuple[float, float]]:
         """Return vertices of the (rotated) area outline, e.g. for drawing.
@@ -871,7 +865,7 @@ def _bounding_size(
     )
 
 
-# pure function of the geometry, so that the plan models carry no cached state
+# A pure function of the geometry, so that the plan models carry no cached state
 # (pydantic equality would otherwise compare caches).
 @functools.lru_cache(maxsize=64)
 def _shape_tiles(
@@ -883,15 +877,14 @@ def _shape_tiles(
     fw: float,
     fh: float,
     mode: OrderMode,
-    placement: str = "cover",
+    placement: str,
 ) -> tuple[tuple[float, float, int, int], ...]:
     sx = fw * (1 - overlap[0] / 100)
     sy = fh * (1 - overlap[1] / 100)
     bw, bh = _bounding_size(shape, width, height, rotation)
     inside = placement == "inside"
     n_tiles = _n_tiles_inside if inside else _n_tiles
-    ncols = n_tiles(bw, fw, sx)
-    nrows = n_tiles(bh, fh, sy)
+    ncols, nrows = n_tiles(bw, fw, sx), n_tiles(bh, fh, sy)
     if not ncols or not nrows:
         return ()
     if ncols * nrows > MAX_SHAPE_GRID_CANDIDATES:
@@ -903,15 +896,27 @@ def _shape_tiles(
     xs = (np.arange(ncols) - (ncols - 1) / 2) * sx
     ys = ((nrows - 1) / 2 - np.arange(nrows)) * sy
     cx, cy = np.meshgrid(xs, ys)  # shape (nrows, ncols)
-    if inside:
-        mask = _footprints_inside(shape, width, height, rotation, cx, cy, fw, fh)
-    else:
-        mask = _footprints_intersect(shape, width, height, rotation, cx, cy, fw, fh)
+    test = _footprints_inside if inside else _footprints_intersect
+    mask = test(shape, width, height, rotation, cx, cy, fw, fh)
     return tuple(
         (float(xs[c]), float(ys[r]), r, c)
         for r, c in mode.generate_indices(nrows, ncols)
         if mask[r, c]
     )
+
+
+def _tile_corners(
+    rotation: float, cx: np.ndarray, cy: np.ndarray, fw: float, fh: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the (u, v) corners of the tiles centered at (cx, cy), in the area frame.
+
+    The area frame is the stage frame rotated by -`rotation`. Both arrays have shape
+    (number of tiles, 4).
+    """
+    t = math.radians(rotation)
+    x = cx.reshape(-1, 1) + np.array([-fw, fw, fw, -fw]) / 2
+    y = cy.reshape(-1, 1) + np.array([-fh, -fh, fh, fh]) / 2
+    return x * math.cos(t) + y * math.sin(t), y * math.cos(t) - x * math.sin(t)
 
 
 def _footprints_intersect(
@@ -926,28 +931,35 @@ def _footprints_intersect(
 ) -> np.ndarray:
     """Return a mask of the fw x fh tiles centered at (cx, cy) touching the area.
 
-    The axis-aligned case is analytic: with `q` the point of each footprint nearest to
-    the area center, a footprint intersects an ellipse with radii (a, b) iff
-    ``(qx/a)**2 + (qy/b)**2 <= 1``, and a rectangle iff q lies within its half sizes.
+    Axis-aligned areas are tested analytically: with `q` the point of each footprint
+    nearest to the area center, a footprint intersects an ellipse with radii (a, b)
+    iff ``(qx/a)**2 + (qy/b)**2 <= 1``, and a rectangle iff q lies within its half
+    sizes. For rotated areas, the corners are mapped into the area frame (scaled so
+    that an ellipse becomes the unit circle); the affine map preserves intersection,
+    so the test is an exact polygon/box intersection, or a polygon-to-origin distance
+    <= 1. No polygonal approximation of the ellipse is involved.
     """
-    is_circle = shape == Shape.ELLIPSE and width == height
+    if shape == Shape.ELLIPSE and width == height:
+        rotation = 0.0  # a circle is rotation invariant
     quarter_turns = rotation / 90
-    if not (
-        is_circle or math.isclose(quarter_turns, round(quarter_turns), abs_tol=1e-12)
-    ):
-        return _rotated_footprints_intersect(
-            shape, width, height, rotation, cx, cy, fw, fh
-        )
+    if math.isclose(quarter_turns, round(quarter_turns), abs_tol=1e-12):
+        w, h = (height, width) if round(quarter_turns) % 2 else (width, height)
+        qx = np.maximum(np.abs(cx) - fw / 2, 0)
+        qy = np.maximum(np.abs(cy) - fh / 2, 0)
+        if shape == Shape.RECTANGLE:
+            tol = 1 + _SHAPE_TOL
+            return (qx <= w / 2 * tol) & (qy <= h / 2 * tol)
+        return (qx / (w / 2)) ** 2 + (qy / (h / 2)) ** 2 <= 1 + _SHAPE_TOL
 
-    w, h = width, height
-    if not is_circle and round(quarter_turns) % 2:
-        w, h = h, w  # rotated by an odd multiple of 90°
-    qx = np.maximum(np.abs(cx) - fw / 2, 0)
-    qy = np.maximum(np.abs(cy) - fh / 2, 0)
-    if shape == Shape.RECTANGLE:
-        tol = 1 + _SHAPE_TOL
-        return (qx <= w / 2 * tol) & (qy <= h / 2 * tol)
-    return (qx / (w / 2)) ** 2 + (qy / (h / 2)) ** 2 <= 1 + _SHAPE_TOL
+    u, v = _tile_corners(rotation, cx, cy, fw, fh)
+    if shape == Shape.ELLIPSE:
+        tiles = polygons(np.stack((u / (width / 2), v / (height / 2)), axis=-1))
+        mask = distance(tiles, Point(0, 0)) <= 1 + _SHAPE_TOL
+    else:
+        w2 = width / 2 * (1 + _SHAPE_TOL)
+        h2 = height / 2 * (1 + _SHAPE_TOL)
+        mask = intersects(polygons(np.stack((u, v), axis=-1)), box(-w2, -h2, w2, h2))
+    return np.asarray(mask, dtype=bool).reshape(cx.shape)
 
 
 def _footprints_inside(
@@ -962,67 +974,15 @@ def _footprints_inside(
 ) -> np.ndarray:
     """Return a mask of the fw x fh tiles centered at (cx, cy) entirely inside the area.
 
-    Both shapes are convex, so a tile is inside iff its four corners are. Corners are
-    mapped into the area frame (inverse rotation) and tested exactly.
+    Both shapes are convex, so a tile is inside iff its four corners are.
     """
-    t = math.radians(rotation)
-    cos_t, sin_t = math.cos(t), math.sin(t)
+    u, v = _tile_corners(rotation, cx, cy, fw, fh)
     tol = 1 + _SHAPE_TOL
-    inside = np.ones(cx.shape, dtype=bool)
-    for dx, dy in (
-        (-fw / 2, -fh / 2),
-        (fw / 2, -fh / 2),
-        (fw / 2, fh / 2),
-        (-fw / 2, fh / 2),
-    ):
-        x, y = cx + dx, cy + dy
-        u = x * cos_t + y * sin_t
-        v = -x * sin_t + y * cos_t
-        if shape == Shape.RECTANGLE:
-            inside &= (np.abs(u) <= width / 2 * tol) & (np.abs(v) <= height / 2 * tol)
-        else:
-            inside &= (u / (width / 2)) ** 2 + (v / (height / 2)) ** 2 <= tol
-    return inside
-
-
-def _rotated_footprints_intersect(
-    shape: Shape,
-    width: float,
-    height: float,
-    rotation: float,
-    cx: np.ndarray,
-    cy: np.ndarray,
-    fw: float,
-    fh: float,
-) -> np.ndarray:
-    """Exact intersection test for an area rotated relative to the stage axes.
-
-    Footprint corners are mapped into the area's frame (and, for ellipses, scaled so
-    that the ellipse becomes the unit circle). The affine map preserves intersection,
-    so the test reduces to polygon/box intersection, or to the distance between the
-    transformed footprint (a parallelogram) and the origin being <= 1. No polygonal
-    approximation of the ellipse is involved.
-    """
-    import shapely
-
-    t = math.radians(rotation)
-    # inverse rotation (stage frame -> area frame)
-    inv = np.array([[math.cos(t), math.sin(t)], [-math.sin(t), math.cos(t)]])
-    if shape == Shape.ELLIPSE:
-        inv = np.diag([2 / width, 2 / height]) @ inv
-    offsets = np.array(
-        [(-fw / 2, -fh / 2), (fw / 2, -fh / 2), (fw / 2, fh / 2), (-fw / 2, fh / 2)]
-    )
-    centers = np.column_stack((cx.ravel(), cy.ravel()))
-    corners = (centers[:, None, :] + offsets[None, :, :]) @ inv.T  # (N, 4, 2)
-    polys = shapely.polygons(corners)
-    if shape == Shape.ELLIPSE:
-        mask = shapely.distance(polys, shapely.Point(0, 0)) <= 1 + _SHAPE_TOL
+    if shape == Shape.RECTANGLE:
+        ok = (np.abs(u) <= width / 2 * tol) & (np.abs(v) <= height / 2 * tol)
     else:
-        w2 = width / 2 * (1 + _SHAPE_TOL)
-        h2 = height / 2 * (1 + _SHAPE_TOL)
-        mask = shapely.intersects(polys, box(-w2, -h2, w2, h2))
-    return np.asarray(mask, dtype=bool).reshape(cx.shape)
+        ok = (u / (width / 2)) ** 2 + (v / (height / 2)) ** 2 <= tol
+    return ok.all(axis=1).reshape(cx.shape)
 
 
 # ------------------------ RANDOM ------------------------

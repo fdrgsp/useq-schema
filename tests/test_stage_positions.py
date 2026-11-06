@@ -86,6 +86,18 @@ _ADD_CASES = [
         (5, 10, 3),
         id="none_falls_back_to_other",
     ),
+    pytest.param(
+        useq.Position(x=1, y=2),
+        useq.RelativePosition(x=5, y=10),
+        (6, 12, None),
+        id="no_base_z_stays_none",
+    ),
+    pytest.param(
+        useq.Position(x=1, y=2),
+        useq.RelativePosition(x=5, y=10, z=4),
+        (6, 12, None),
+        id="relative_z_without_base_z_is_not_absolute",
+    ),
 ]
 
 
@@ -103,6 +115,28 @@ def test_position_radd() -> None:
     rel = useq.RelativePosition(x=5, y=10, z=0)
     result = rel + pos
     assert (result.x, result.y, result.z) == (6, 12, 3)
+
+
+def test_well_plate_positions_do_not_move_z() -> None:
+    """Plate positions have no z, so their events don't move the focus stage."""
+    plan = useq.WellPlatePlan(
+        plate=96,
+        a1_center_xy=(0, 0),
+        selected_wells=([0], [0, 1]),
+        well_points_plan=useq.GridRowsColumns(
+            rows=1, columns=2, fov_width=10, fov_height=10
+        ),
+    )
+    assert [p.z for p in plan] == [None] * 4
+    events = list(useq.MDASequence(stage_positions=plan))
+    assert [e.z_pos for e in events] == [None] * 4
+
+    # with hardware autofocus, z is still not set: the autofocus finds it
+    seq = useq.MDASequence(
+        stage_positions=plan,
+        autofocus_plan=useq.AxesBasedAF(autofocus_motor_offset=10, axes=("p",)),
+    )
+    assert {e.z_pos for e in seq} == {None}
 
 
 # --- RelativePosition rejected in stage_positions --------------------------------

@@ -63,6 +63,16 @@ def _assert_covers(plan: GridFromShape) -> None:
         assert covered.all(), f"{(~covered).sum()} sample points not covered"
 
 
+def _area_polygon(plan: GridFromShape) -> shapely.Polygon:
+    """A polygon containing the true area (circumscribed for ellipses)."""
+    n = 4096
+    area = shapely.Polygon(plan.boundary_vertices(n))
+    if plan.shape == Shape.ELLIPSE:
+        k = 1 / math.cos(math.pi / n)
+        area = shapely.affinity.scale(area, k, k, origin=(0, 0))
+    return area.buffer(TOL)
+
+
 COVER_CASES = [
     # rectangles: exact multiple, non-multiple, overlap per axis, non-square FOV
     {"shape": "rectangle", "width": 1000, "height": 1000, "fov": (100, 100)},
@@ -112,16 +122,9 @@ def test_grid_from_shape_covers_area(case: dict) -> None:
 def test_grid_from_shape_keeps_only_intersecting_tiles(case: dict) -> None:
     """Every retained tile touches the area; compare with polygonal geometry."""
     plan = _make(case)
-    # A circumscribing polygon approximation of an ellipse can only *add* contact,
-    # so every retained tile must intersect it (buffered by a small tolerance).
-    n = 4096
-    verts = plan.boundary_vertices(n)
-    area = shapely.Polygon(verts)
-    if plan.shape == Shape.ELLIPSE:
-        area = shapely.affinity.scale(
-            area, 1 / math.cos(math.pi / n), 1 / math.cos(math.pi / n), origin=(0, 0)
-        )
-    area = area.buffer(TOL)
+    # A circumscribing polygon of an ellipse can only *add* contact, so every
+    # retained tile must intersect it.
+    area = _area_polygon(plan)
     assert all(area.intersects(f) for f in _footprints(plan))
 
 
@@ -402,16 +405,6 @@ def test_well_plate_plan_rotation_convention() -> None:
 
 
 # ------------------------ placement="inside" ------------------------
-
-
-def _area_polygon(plan: GridFromShape) -> shapely.Polygon:
-    """A polygon containing the true area (circumscribed for ellipses)."""
-    n = 4096
-    area = shapely.Polygon(plan.boundary_vertices(n))
-    if plan.shape == Shape.ELLIPSE:
-        k = 1 / math.cos(math.pi / n)
-        area = shapely.affinity.scale(area, k, k, origin=(0, 0))
-    return area.buffer(TOL)
 
 
 @pytest.mark.parametrize("case", COVER_CASES)

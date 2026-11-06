@@ -92,10 +92,11 @@ class PositionBase(MutableModel):
             y = self.y + other.y
         else:
             y = self.y if other.y is None else other.y
+        z: float | None
         if self.z is not None and other.z is not None:
             z = self.z + other.z
         else:
-            z = self.z if other.z is None else other.z
+            z = self.z
         if (name := self.name) and other.name:
             name = f"{name}_{other.name}"
         kwargs = {**self.model_dump(), "x": x, "y": y, "z": z, "name": name}
