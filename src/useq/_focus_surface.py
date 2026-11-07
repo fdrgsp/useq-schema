@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from functools import cache
+from functools import cached_property
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -48,16 +48,20 @@ class FocusSurface(UseqModel):
 
     @model_validator(mode="after")
     def _validate_geometry(self) -> Self:
-        _compile(self)
+        self._compiled  # noqa: B018
         return self
+
+    @cached_property
+    def _compiled(self) -> _CompiledSurface:
+        return _CompiledSurface(self)
 
     def evaluate(self, xy: ArrayLike) -> NDArray[np.float64]:
         """Return the surface Z at each `(x, y)`."""
-        return _compile(self)(np.asarray(xy, dtype=float).reshape(-1, 2))
+        return self._compiled(np.asarray(xy, dtype=float).reshape(-1, 2))
 
     def hull(self) -> NDArray[np.float64]:
         """Return the XY of the points' convex hull, counterclockwise."""
-        return _compile(self).hull
+        return self._compiled.hull
 
 
 class _CompiledSurface:
@@ -84,9 +88,7 @@ class _CompiledSurface:
 
         self._method = surface.method
         design = np.column_stack([unit, np.ones(n)])
-        self._plane: NDArray[np.float64] = np.linalg.lstsq(design, self._z, rcond=None)[
-            0
-        ]
+        self._plane = np.linalg.lstsq(design, self._z, rcond=None)[0]
         self._triangles, hull = _delaunay(unit)
         self.hull: NDArray[np.float64] = xy[hull]
         self._hull_edges = np.column_stack([hull, np.roll(hull, -1)])
@@ -131,11 +133,6 @@ class _CompiledSurface:
         z_q = za[edge] + tq * (zb[edge] - za[edge])
         z: NDArray[np.float64] = z_q + (unit - q) @ self._plane[:2]
         return z
-
-
-@cache
-def _compile(surface: FocusSurface) -> _CompiledSurface:
-    return _CompiledSurface(surface)
 
 
 def _orient(a: NDArray, b: NDArray, c: NDArray) -> float:

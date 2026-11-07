@@ -73,7 +73,7 @@ def test_triangulation_covers_the_hull(points: list) -> None:
     xy = np.asarray(points, dtype=float)
     z = np.random.default_rng(1).normal(size=len(xy))
     surface = FocusSurface(points=np.column_stack([xy, z]).tolist())
-    compiled = useq._focus_surface._compile(surface)
+    compiled = surface._compiled
     triangles = xy[compiled._triangles]
     assert sum(_area(t) for t in triangles) == pytest.approx(_area(surface.hull()))
     # Delaunay: no point inside the circumcircle of any triangle
