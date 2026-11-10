@@ -216,7 +216,7 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
     """
     last_t_idx = -1
     last_p_idx = -1
-    surface_z = _surface_z(sequence.focus_surface) if sequence.focus_surface else None
+    surfaces: dict[int, Callable[[float, float], float]] = {}
     # Keep trigger state per iteration and per plan, including position subsequences.
     af_previous: dict[int, Mapping[str, int]] = {}
     for selection, active_sequence in _iter_axis_combinations(sequence):
@@ -228,6 +228,13 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
 
         if _should_skip(channel, index, z_plan):
             continue
+
+        surface_z = None
+        if surface := active_sequence.focus_surface or sequence.focus_surface:
+            key = id(surface)
+            if key not in surfaces:
+                surfaces[key] = _surface_z(surface)
+            surface_z = surfaces[key]
 
         event_kwargs: dict[str, Any] = {
             "sequence": sequence,

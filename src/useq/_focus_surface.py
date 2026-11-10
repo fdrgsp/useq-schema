@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from pydantic import FiniteFloat, model_validator
+from shapely import MultiPoint, delaunay_triangles, get_coordinates
 
 from useq._base_model import UseqModel
 
@@ -19,10 +20,10 @@ if TYPE_CHECKING:
 MIN_POINT_DISTANCE = 0.1
 # Below this ratio of the XY spread's minor to major axis, the points are a line.
 MIN_SPREAD_RATIO = 1e-3
-# Tolerance (in normalized units) of the geometric tests.
-EPS = 1e-12
 # Barycentric weights above minus this are inside a triangle.
 INSIDE_TOLERANCE = 1e-9
+# Bound the temporary position-by-triangle arrays when evaluating a dense map.
+MAX_BATCH_PAIRS = 262_144
 
 
 class FocusSurface(UseqModel):
@@ -92,6 +93,8 @@ class _CompiledSurface:
         self._triangles, hull = _delaunay(unit)
         self.hull: NDArray[np.float64] = xy[hull]
         self._hull_edges = np.column_stack([hull, np.roll(hull, -1)])
+        if self._method == "plane":
+            return
         # barycentric transform of each triangle: (T, 2, 2) inverse and (T, 2) origin
         a, b, c = (unit[self._triangles[:, i]] for i in range(3))
         self._inverse = np.linalg.inv(np.stack([b - a, c - a], axis=-1))
@@ -101,16 +104,24 @@ class _CompiledSurface:
         unit = (xy - self._center) / self._scale
         if self._method == "plane":
             return self._plane_z(unit)
+        z = np.empty(len(unit))
+        batch = max(1, MAX_BATCH_PAIRS // len(self._triangles))
+        for start in range(0, len(unit), batch):
+            z[start : start + batch] = self._linear_z(unit[start : start + batch])
+        return z
+
+    def _linear_z(self, unit: NDArray[np.float64]) -> NDArray[np.float64]:
         # barycentric weights of each position (rows) in each triangle (columns)
         uv = np.einsum("tij,mtj->mti", self._inverse, unit[:, None] - self._origin)
         weights = np.concatenate([1 - uv.sum(axis=-1, keepdims=True), uv], axis=-1)
-        contained = (weights >= -INSIDE_TOLERANCE).all(axis=-1)
-        inside = contained.any(axis=1)
+        margins = weights.min(axis=-1)
+        # Prefer the most interior triangle when rounding makes several eligible.
+        tri = margins.argmax(axis=1)
+        inside = margins[np.arange(len(unit)), tri] >= -INSIDE_TOLERANCE
         z = np.empty(len(unit))
         rows = np.flatnonzero(inside)
-        tri = contained[rows].argmax(axis=1)
-        vertex_z = self._z[self._triangles[tri]]
-        z[rows] = (weights[rows, tri] * vertex_z).sum(axis=1)
+        vertex_z = self._z[self._triangles[tri[rows]]]
+        z[rows] = (weights[rows, tri[rows]] * vertex_z).sum(axis=1)
         z[~inside] = self._extrapolate(unit[~inside])
         return z
 
@@ -135,81 +146,26 @@ class _CompiledSurface:
         return z
 
 
-def _orient(a: NDArray, b: NDArray, c: NDArray) -> float:
-    """Twice the signed area of `abc`: positive if counterclockwise."""
-    return float((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
-
-
-def _in_circle(a: NDArray, b: NDArray, c: NDArray, d: NDArray) -> float:
-    """Positive if `d` is inside the circumcircle of the counterclockwise `abc`."""
-    rows = np.array([a - d, b - d, c - d])
-    return float(np.linalg.det(np.column_stack([rows, (rows**2).sum(axis=1)])))
-
-
 def _delaunay(pts: NDArray[np.float64]) -> tuple[NDArray[np.intp], NDArray[np.intp]]:
-    """Return the Delaunay triangles (T, 3) and the convex hull of 2D `pts`.
-
-    A sweep over the points sorted by (x, y) triangulates their convex hull, then
-    edges are flipped until every triangle has no point inside its circumcircle
-    (Lawson). Points on a circumcircle (e.g. the corners of a rectangle) keep the
-    sweep's split, so the result does not depend on the order of the points. The
-    points must not all lie on a line. The hull is counterclockwise.
-    """
+    """Delaunay triangles and CCW boundary, including collinear boundary points."""
+    # Sort before GEOS triangulation so cocircular ties are independent of input order.
     order = np.lexsort((pts[:, 1], pts[:, 0]))
-    p = pts[order]
-    # the first point off the line through the first two starts the sweep
-    k = next(i for i in range(2, len(p)) if abs(_orient(p[0], p[1], p[i])) > EPS)
-    triangles: list[list[int]] = []
-    for i in range(k - 1):
-        tri = [i, i + 1, k]
-        triangles.append(tri if _orient(*p[tri]) > 0 else [i + 1, i, k])
-    # counterclockwise hull: the line of the first k points, then the point k
-    hull = [*range(k), k]
-    if _orient(p[0], p[k - 1], p[k]) < 0:
-        hull = [*range(k - 1, -1, -1), k]
-    for i in range(k + 1, len(p)):
-        # the new point is right of the hull: connect it to every edge it sees
-        n = len(hull)
-        visible = [
-            j
-            for j in range(n)
-            if _orient(p[hull[j]], p[hull[(j + 1) % n]], p[i]) < -EPS
-        ]
-        triangles += [[hull[(j + 1) % n], hull[j], i] for j in visible]
-        # the visible edges are consecutive: replace their inner vertices with i
-        first = next(j for j in visible if (j - 1) % n not in visible)
-        last = next(j for j in visible if (j + 1) % n not in visible)
-        start, stop = (first + 1) % n, (last + 1) % n
-        if start <= stop:
-            hull = [*hull[:start], i, *hull[stop:]]
-        else:  # the visible chain wraps around the end of the list
-            hull = [*hull[stop:start], i]
-    triangles = _flip_to_delaunay(p, triangles)
-    return order[np.array(triangles)], order[np.array(hull)]
-
-
-def _flip_to_delaunay(p: NDArray, triangles: list[list[int]]) -> list[list[int]]:
-    """Flip edges of the counterclockwise `triangles` until they are Delaunay."""
-    # each directed edge (a, b) belongs to the triangle on its left
-    owner: dict[tuple[int, int], int] = {}
-    for t, (a, b, c) in enumerate(triangles):
-        owner[a, b], owner[b, c], owner[c, a] = t, t, t
-    stack = list(owner)
-    for _ in range(100 * len(triangles) ** 2):
-        if not stack:
-            return triangles
-        a, b = stack.pop()
-        if (a, b) not in owner or (b, a) not in owner:
-            continue  # flipped away, or on the hull
-        t, u = owner[a, b], owner[b, a]
-        c = next(v for v in triangles[t] if v not in (a, b))
-        d = next(v for v in triangles[u] if v not in (a, b))
-        if _in_circle(p[a], p[b], p[c], p[d]) <= EPS:
-            continue
-        # replace (a, b, c) and (b, a, d) with (c, a, d) and (d, b, c)
-        triangles[t], triangles[u] = [c, a, d], [d, b, c]
-        del owner[a, b], owner[b, a]
-        owner[c, a] = owner[a, d] = owner[d, c] = t
-        owner[d, b] = owner[b, c] = owner[c, d] = u
-        stack += [(a, d), (d, b), (b, c), (c, a)]
-    raise RuntimeError("The triangulation did not converge.")  # pragma: no cover
+    coords = get_coordinates(delaunay_triangles(MultiPoint(pts[order])))
+    indices = {tuple(point): i for i, point in enumerate(pts)}
+    triangles = np.array([indices[tuple(p)] for p in coords], dtype=np.intp)
+    triangles = triangles.reshape(-1, 4)[:, :3].copy()
+    a, b, c = (pts[triangles[:, i]] for i in range(3))
+    clockwise = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) < (b[:, 1] - a[:, 1]) * (
+        c[:, 0] - a[:, 0]
+    )
+    triangles[clockwise] = triangles[clockwise, ::-1]
+    edges = {
+        (int(a), int(b))
+        for tri in triangles
+        for a, b in zip(tri, np.roll(tri, -1), strict=True)
+    }
+    boundary = {a: b for a, b in edges if (b, a) not in edges}
+    hull = [min(boundary, key=lambda i: tuple(pts[i]))]
+    while (vertex := boundary[hull[-1]]) != hull[0]:
+        hull.append(vertex)
+    return triangles, np.array(hull, dtype=np.intp)

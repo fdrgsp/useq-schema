@@ -26,6 +26,11 @@ def _area(polygon: np.ndarray) -> float:
     return float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2
 
 
+def _in_circle(a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray) -> float:
+    rows = np.array([a - d, b - d, c - d])
+    return float(np.linalg.det(np.column_stack([rows, (rows**2).sum(axis=1)])))
+
+
 @pytest.mark.parametrize("method", ["linear", "plane"])
 def test_reproduces_a_tilted_plane(method: str) -> None:
     # inside the points, on them, and outside them (extrapolated)
@@ -79,7 +84,7 @@ def test_triangulation_covers_the_hull(points: list) -> None:
     # Delaunay: no point inside the circumcircle of any triangle
     for a, b, c in compiled._unit[compiled._triangles]:
         for d in compiled._unit:
-            assert useq._focus_surface._in_circle(a, b, c, d) < 1e-9
+            assert _in_circle(a, b, c, d) < 1e-9
     # it goes through every point
     np.testing.assert_allclose(surface.evaluate(xy), z, atol=1e-9)
 
@@ -94,6 +99,36 @@ def test_ties_do_not_depend_on_the_order_of_the_points() -> None:
     for _ in range(10):
         shuffled = [grid[i] for i in rng.permutation(len(grid))]
         np.testing.assert_allclose(_surface(shuffled).evaluate(xy), z)
+
+
+@pytest.mark.parametrize("offset", [0, 1e-8, 1e-6, 0.1])
+def test_nearly_collinear_boundary_points(offset: float) -> None:
+    points = [
+        (0, 0, 0),
+        (offset, 1000, 8),
+        (0, 2000, 0),
+        (0, 3000, 0),
+        (0, 4000, 0),
+        (10000, 0, 0),
+        (10000, 4000, 0),
+    ]
+    surface = _surface(points)
+    np.testing.assert_allclose(
+        surface.evaluate(np.array(points)[:, :2]), np.array(points)[:, 2], atol=1e-9
+    )
+    triangles = np.array(points)[surface._compiled._triangles, :2]
+    assert all(_area(t) > 0 for t in triangles)
+    assert sum(_area(t) for t in triangles) == pytest.approx(_area(surface.hull()))
+
+
+def test_extrapolation_keeps_collinear_boundary_heights() -> None:
+    surface = _surface(
+        [(0, 0, 0), (0, 1000, 8), (0, 2000, 0), (2000, 0, 0), (2000, 2000, 0)]
+    )
+    inside, on, outside = surface.evaluate([(1e-6, 1000), (0, 1000), (-1e-6, 1000)])
+    assert on == pytest.approx(8)
+    assert inside == pytest.approx(on, abs=1e-7)
+    assert outside == pytest.approx(on, abs=1e-7)
 
 
 @pytest.mark.parametrize(
@@ -193,3 +228,43 @@ def test_surface_evaluated_once_per_xy() -> None:
     ) as mock:
         assert len(list(seq)) == 15
     mock.assert_called_once()
+
+
+def test_position_surface_overrides_the_global_surface() -> None:
+    local = _surface([(x, y, z + 20) for x, y, z in TILTED])
+    seq = useq.MDASequence(
+        focus_surface=_surface(),
+        stage_positions=[
+            useq.Position(x=500, y=500, sequence=useq.MDASequence(focus_surface=local)),
+            (500, 500),
+        ],
+    )
+    assert [e.z_pos for e in seq] == pytest.approx([25, 5])
+    assert [e.z_pos for e in seq.replace(focus_surface=None)] == pytest.approx(
+        [25, None]
+    )
+
+
+@pytest.mark.parametrize("surface_on_child", [False, True])
+def test_inherited_absolute_z_cannot_override_a_surface(surface_on_child: bool) -> None:
+    surface = _surface()
+    absolute = useq.ZTopBottom(top=1, bottom=0, step=1)
+    child = useq.MDASequence(
+        focus_surface=surface if surface_on_child else None,
+        z_plan=None if surface_on_child else absolute,
+    )
+    with pytest.raises(ValidationError, match="absolute z_plan"):
+        useq.MDASequence(
+            focus_surface=None if surface_on_child else surface,
+            z_plan=absolute if surface_on_child else None,
+            stage_positions=[useq.Position(x=500, y=500, sequence=child)],
+        )
+
+
+@pytest.mark.parametrize("method", ["linear", "plane"])
+def test_dense_surface_map(method: str) -> None:
+    xy = np.random.default_rng(4).uniform(-200, 1200, (100_000, 2))
+    np.testing.assert_allclose(
+        _surface(method=method).evaluate(xy), xy[:, 0] * 0.01, atol=1e-9
+    )
+    assert _surface(method=method).evaluate([]).shape == (0,)

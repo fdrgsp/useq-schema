@@ -367,10 +367,19 @@ class MDASequence(UseqModel):
 
     @model_validator(mode="after")
     def _validate_mda(self) -> Self:
-        if (
-            self.focus_surface is not None
-            and self.z_plan
-            and not self.z_plan.is_relative
+        surface_plans = [(self.focus_surface, self.z_plan)]
+        if not isinstance(self.stage_positions, WellPlatePlan):
+            surface_plans.extend(
+                (
+                    p.sequence.focus_surface or self.focus_surface,
+                    p.sequence.z_plan or self.z_plan,
+                )
+                for p in self.stage_positions
+                if p.sequence is not None
+            )
+        if any(
+            surface is not None and z is not None and not z.is_relative
+            for surface, z in surface_plans
         ):
             raise ValueError(
                 "focus_surface cannot be used with an absolute z_plan: its Z positions "
