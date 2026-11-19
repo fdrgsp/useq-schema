@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from useq._autofocus_base import _AxesTrigger
 from useq._channel import Channel  # noqa: TC001  # noqa: TCH001
 from useq._enums import AXES, Axis
+from useq._hardware_autofocus import AutoFocusPlan
 from useq._mda_event import Channel as EventChannel
 from useq._mda_event import MDAEvent, ReadOnlyDict
 from useq._position import Position
@@ -270,11 +271,19 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                 effective_sequence = sequence.model_copy(update={"z_plan": z_plan})
                 af_input = event.model_copy(update={"sequence": effective_sequence})
             if isinstance(autofocus_plan, _AxesTrigger):
-                af_event = (
-                    autofocus_plan.autofocus_event(af_input)
-                    if autofocus_plan.triggers_after(af_previous, af_input)
-                    else None
-                )
+                if autofocus_plan.triggers_after(af_previous, af_input):
+                    af_event = autofocus_plan.autofocus_event(af_input)
+                elif (
+                    isinstance(autofocus_plan, AutoFocusPlan)
+                    and autofocus_plan.keep_locked
+                    and (
+                        not af_previous
+                        or af_previous.get(Axis.POSITION) != index.get(Axis.POSITION)
+                    )
+                ):
+                    af_event = autofocus_plan.hold_event(af_input)
+                else:
+                    af_event = None
             else:
                 # a plan of some other kind keeps its own state, as it always has
                 af_event = autofocus_plan.event(af_input)

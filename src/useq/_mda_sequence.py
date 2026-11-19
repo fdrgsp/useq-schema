@@ -20,6 +20,7 @@ from useq._channel import Channel
 from useq._enums import AXES, Axis
 from useq._focus_surface import FocusSurface  # noqa: TC001
 from useq._grid import MultiPointPlan  # noqa: TC001
+from useq._hardware_autofocus import AutoFocusPlan
 from useq._iter_sequence import iter_sequence
 from useq._plate import WellPlatePlan
 from useq._position import Position, PositionBase, RelativePosition
@@ -504,6 +505,21 @@ class MDASequence(UseqModel):
             raise ValueError(
                 "Currently, a Position sequence cannot have multiple stage positions."
             )
+
+        # A locked hardware autofocus holds Z: nothing else can move it
+        subs = [p.sequence for p in stage_positions if p.sequence is not None]
+        plans = (autofocus_plan, *(s.autofocus_plan for s in subs))
+        if any(isinstance(af, AutoFocusPlan) and af.keep_locked for af in plans):
+            z_plans = (z_plan, *(s.z_plan for s in subs))
+            z_stack = Axis.Z in order and any(
+                z is not None and z.num_positions() > 1 for z in z_plans
+            )
+            all_channels = (*channels, *(c for s in subs for c in s.channels))
+            if z_stack or any(c.z_offset for c in all_channels):
+                raise ValueError(
+                    "A hardware autofocus that keeps the lock holds Z, so it cannot "
+                    "be used with a Z stack or channel Z offsets."
+                )
 
         # Cannot use autofocus plan with absolute z_plan
         if Axis.Z in order and z_plan and not z_plan.is_relative:

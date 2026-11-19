@@ -4,6 +4,7 @@ from pydantic import Field
 
 from useq._actions import HardwareAutofocus
 from useq._autofocus_base import _AutofocusPlanBase, _AxesTrigger
+from useq._mda_event import MDAEvent
 
 
 class AutoFocusPlan(_AutofocusPlanBase):
@@ -29,6 +30,12 @@ class AutoFocusPlan(_AutofocusPlanBase):
         As `search_below_um`, but stepping *up*.  By default, `0.0`.
     search_step_um : float
         Step size in µm used while searching.  By default, `5.0`.
+    keep_locked : bool
+        Keep continuous focus locked for the whole acquisition.  Autofocus then
+        *finds* focus only when this plan triggers; at the first event and at every
+        other position change it only *holds* focus: it moves to that position's
+        offset and waits for the lock.  A locked autofocus holds Z, so this cannot
+        be combined with Z stacks or channel Z offsets.  By default, `False`.
     """
 
     autofocus_device_name: str | None = None
@@ -37,6 +44,7 @@ class AutoFocusPlan(_AutofocusPlanBase):
     search_below_um: float = Field(default=0.0, ge=0.0)
     search_above_um: float = Field(default=0.0, ge=0.0)
     search_step_um: float = Field(default=5.0, ge=0.0)
+    keep_locked: bool = False
 
     def as_action(self) -> HardwareAutofocus:
         """Return a [`useq.HardwareAutofocus`][] for this autofocus plan."""
@@ -47,7 +55,13 @@ class AutoFocusPlan(_AutofocusPlanBase):
             search_below_um=self.search_below_um,
             search_above_um=self.search_above_um,
             search_step_um=self.search_step_um,
+            keep_locked=self.keep_locked,
         )
+
+    def hold_event(self, event: MDAEvent) -> MDAEvent:
+        """Return the event that only holds focus (no full autofocus) before `event`."""
+        action = self.as_action().model_copy(update={"find_focus": False})
+        return self.autofocus_event(event).model_copy(update={"action": action})
 
 
 class AxesBasedAF(_AxesTrigger, AutoFocusPlan):

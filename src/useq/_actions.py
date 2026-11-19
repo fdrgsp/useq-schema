@@ -85,6 +85,14 @@ class HardwareAutofocus(Action):
         Step size in µm used while searching for a position at which autofocus succeeds.
         Only meaningful if `search_below_um` or `search_above_um` is greater than zero.
         By default, `5.0`.
+    find_focus : bool
+        If `True` (the default), find focus: switch continuous focus off, move the
+        offset, run a full autofocus (with the search above) and lock again if
+        `keep_locked`.  If `False`, only hold focus: move the offset, switch
+        continuous focus on and wait for it to lock.
+    keep_locked : bool
+        Whether the plan this action comes from keeps continuous focus locked
+        between autofocus events.  By default, `False`.
     """
 
     type: Literal["hardware_autofocus"] = "hardware_autofocus"  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -94,6 +102,8 @@ class HardwareAutofocus(Action):
     search_below_um: float = Field(default=0.0, ge=0.0)
     search_above_um: float = Field(default=0.0, ge=0.0)
     search_step_um: float = Field(default=5.0, ge=0.0)
+    find_focus: bool = True
+    keep_locked: bool = False
 
     @model_validator(mode="after")
     def _validate_search(self) -> "HardwareAutofocus":

@@ -111,11 +111,12 @@ def test_legacy_hardware_plan_still_parses() -> None:
     "plan",
     [
         useq.AxesBasedAF(axes=("p",), autofocus_motor_offset=10.0, search_above_um=8.0),
+        useq.AxesBasedAF(axes=(), autofocus_motor_offset=10.0, keep_locked=True),
         useq.SoftwareAxesBasedAF(
             axes=("p",), method="oughtafocus", settings={"crop_factor": 0.5}
         ),
     ],
-    ids=["hardware", "software"],
+    ids=["hardware", "hardware-keep-locked", "software"],
 )
 def test_plan_round_trip(plan: useq.AnyAutofocusPlan) -> None:
     seq = useq.MDASequence(autofocus_plan=plan)
@@ -126,11 +127,14 @@ def test_plan_round_trip(plan: useq.AnyAutofocusPlan) -> None:
     for other in rebuilt:
         assert other.autofocus_plan == plan
         assert type(other.autofocus_plan) is type(plan)
-    # the action a plan builds must survive a round trip of its own
-    action = plan.as_action()
-    dumped = action.model_dump_json()
-    assert json.loads(dumped)["type"] == action.type
-    assert type(action).model_validate_json(dumped) == action
+    # the actions a plan builds must survive a round trip of their own
+    actions = [plan.as_action()]
+    if isinstance(plan, useq.AxesBasedAF):
+        actions.append(plan.hold_event(useq.MDAEvent()).action)
+    for action in actions:
+        dumped = action.model_dump_json()
+        assert json.loads(dumped)["type"] == action.type
+        assert type(action).model_validate_json(dumped) == action
 
 
 # ----------------------------- event insertion -----------------------------
@@ -258,6 +262,127 @@ def test_should_autofocus_on_its_own_still_remembers_the_last_event() -> None:
     assert plan.should_autofocus(useq.MDAEvent(index={"p": 0}))
     assert not plan.should_autofocus(useq.MDAEvent(index={"p": 0}))
     assert plan.should_autofocus(useq.MDAEvent(index={"p": 1}))
+
+
+# ------------------------------ keep locked ------------------------------
+
+TWO_POSITIONS = [(0, 0, 0), (1, 1, 1)]
+THREE_TIMEPOINTS = {"interval": 1, "loops": 3}
+
+
+def _af_kinds(seq: useq.MDASequence) -> list[tuple[dict, str, float | None]]:
+    """(index, "find" or "hold", offset) for every hardware autofocus event."""
+    actions = [(e.index, e.action) for e in _af_events(seq)]
+    return [
+        (dict(index), "find" if a.find_focus else "hold", a.autofocus_motor_offset)
+        for index, a in actions
+        if isinstance(a, useq.HardwareAutofocus)
+    ]
+
+
+def test_keep_locked_finds_on_its_axes_and_holds_nowhere_else() -> None:
+    seq = useq.MDASequence(
+        axis_order="tpgc",
+        time_plan=THREE_TIMEPOINTS,
+        stage_positions=TWO_POSITIONS,
+        grid_plan={"rows": 1, "columns": 2},
+        autofocus_plan={"axes": ("p",), "keep_locked": True},
+    )
+    kinds = _af_kinds(seq)
+    assert [k for _, k, _ in kinds] == ["find"] * 6
+    assert all(index["g"] == 0 for index, _, _ in kinds)
+    assert all(e.action.keep_locked for e in _af_events(seq))
+
+
+def test_keep_locked_holds_at_every_position_change() -> None:
+    seq = useq.MDASequence(
+        axis_order="tpc",
+        time_plan=THREE_TIMEPOINTS,
+        stage_positions=[
+            {
+                "x": x,
+                "sequence": {
+                    "autofocus_plan": {
+                        "axes": (),
+                        "keep_locked": True,
+                        "autofocus_motor_offset": x,
+                    }
+                },
+            }
+            for x in (1.0, 2.0)
+        ],
+    )
+    assert _af_kinds(seq) == [
+        ({"t": t, "p": p}, "hold", p + 1.0) for t in range(3) for p in range(2)
+    ]
+
+
+def test_keep_locked_holds_before_the_first_event_without_positions() -> None:
+    seq = useq.MDASequence(
+        time_plan=THREE_TIMEPOINTS, autofocus_plan={"axes": (), "keep_locked": True}
+    )
+    assert _af_kinds(seq) == [({"t": 0}, "hold", None)]
+
+
+def test_keep_locked_holds_where_no_find_is_due() -> None:
+    seq = useq.MDASequence(
+        axis_order="tpc",
+        time_plan=THREE_TIMEPOINTS,
+        stage_positions=TWO_POSITIONS,
+        autofocus_plan={
+            "axes": ("p", "t"),
+            "every_n_timepoints": 2,
+            "keep_locked": True,
+        },
+    )
+    expected = {0: "find", 1: "hold", 2: "find"}
+    assert _af_kinds(seq) == [
+        ({"t": t, "p": p}, expected[t], None) for t in range(3) for p in range(2)
+    ]
+
+
+LOCKED = {"axes": ("p",), "keep_locked": True}
+Z_STACK = {"range": 2.0, "step": 1.0}
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"z_plan": Z_STACK, "autofocus_plan": LOCKED},
+        {
+            "stage_positions": [{"sequence": {"z_plan": Z_STACK}}],
+            "autofocus_plan": LOCKED,
+        },
+        {
+            "stage_positions": [{"sequence": {"autofocus_plan": LOCKED}}],
+            "z_plan": Z_STACK,
+        },
+        {"channels": [{"config": "DAPI", "z_offset": 1.0}], "autofocus_plan": LOCKED},
+        {
+            "stage_positions": [
+                {"sequence": {"channels": [{"config": "DAPI", "z_offset": 1.0}]}}
+            ],
+            "autofocus_plan": LOCKED,
+        },
+    ],
+    ids=["z-stack", "sub-z-stack", "sub-plan", "z-offset", "sub-z-offset"],
+)
+def test_keep_locked_rejects_z_moves(kwargs: dict) -> None:
+    with pytest.raises(ValidationError, match="holds Z"):
+        useq.MDASequence(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"z_plan": Z_STACK, "autofocus_plan": {"axes": ("p",)}},
+        {"z_plan": {"range": 0.0, "step": 1.0}, "autofocus_plan": LOCKED},
+        {"channels": [{"config": "DAPI", "z_offset": 0.0}], "autofocus_plan": LOCKED},
+    ],
+    ids=["not-locked", "single-plane", "zero-offset"],
+)
+def test_keep_locked_allows_a_fixed_z(kwargs: dict) -> None:
+    useq.MDASequence(**kwargs)
 
 
 # --------------------------- absolute z rejection ---------------------------

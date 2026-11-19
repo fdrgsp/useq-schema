@@ -11,7 +11,8 @@
     "max_retries": 3,
     "search_above_um": 0.0,
     "search_below_um": 0.0,
-    "search_step_um": 5.0
+    "search_step_um": 5.0,
+    "keep_locked": false
   },
   "axis_order": [
     "t",
