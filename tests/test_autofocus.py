@@ -228,6 +228,30 @@ def test_interleaved_iterations_do_not_disturb_each_other(plan: dict) -> None:
     assert [type(y.action).__name__ for _, y in pairs] == expected
 
 
+@pytest.mark.parametrize("plan", REUSED_PLANS)
+@pytest.mark.parametrize(("axis_order", "n_af"), [("tpc", 6), ("ptc", 2)])
+def test_per_position_plans_trigger_like_a_global_plan(
+    plan: dict, axis_order: str, n_af: int
+) -> None:
+    """Each position's own plan used to compare only with its own last event, so in
+    a `tp` acquisition it never saw `p` change and skipped every revisit."""
+    positions = [(0, 0, 0), (1, 1, 1)]
+    timed = {"axis_order": axis_order, "time_plan": {"interval": 1, "loops": 3}}
+    global_plan = useq.MDASequence(
+        stage_positions=positions, autofocus_plan=plan, **timed
+    )
+    per_position = useq.MDASequence(
+        stage_positions=[
+            {"x": x, "y": y, "z": z, "sequence": {"autofocus_plan": plan}}
+            for x, y, z in positions
+        ],
+        **timed,
+    )
+    expected = [dict(e.index) for e in _af_events(global_plan)]
+    assert len(expected) == n_af
+    assert [dict(e.index) for e in _af_events(per_position)] == expected
+
+
 def test_should_autofocus_on_its_own_still_remembers_the_last_event() -> None:
     """Called directly, outside any iteration, it compares with what it last saw."""
     plan = useq.AxesBasedAF(axes=("p",))

@@ -217,8 +217,9 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
     last_t_idx = -1
     last_p_idx = -1
     surfaces: dict[int, Callable[[float, float], float]] = {}
-    # Keep trigger state per iteration and per plan, including position subsequences.
-    af_previous: dict[int, Mapping[str, int]] = {}
+    # The previous event's index, whichever plan it had: per-position plans would
+    # otherwise only compare against their own position and miss every revisit.
+    af_previous: Mapping[str, int] = {}
     for selection, active_sequence in _iter_axis_combinations(sequence):
         index, time, position, grid, channel, z_pos = _parse_axes(
             (key, (idx, value)) for key, (idx, value, _plan) in selection.items()
@@ -269,11 +270,9 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                 effective_sequence = sequence.model_copy(update={"z_plan": z_plan})
                 af_input = event.model_copy(update={"sequence": effective_sequence})
             if isinstance(autofocus_plan, _AxesTrigger):
-                previous = af_previous.get(id(autofocus_plan), {})
-                af_previous[id(autofocus_plan)] = dict(af_input.index)
                 af_event = (
                     autofocus_plan.autofocus_event(af_input)
-                    if autofocus_plan.triggers_after(previous, af_input)
+                    if autofocus_plan.triggers_after(af_previous, af_input)
                     else None
                 )
             else:
@@ -284,6 +283,7 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
                     af_event = af_event.model_copy(update={"sequence": sequence})
                 yield af_event
         yield event
+        af_previous = event.index
         last_t_idx = event.index.get(Axis.TIME, last_t_idx)
 
 
