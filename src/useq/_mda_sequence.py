@@ -5,6 +5,7 @@ from contextlib import suppress
 from typing import (
     TYPE_CHECKING,
     Any,
+    NamedTuple,
 )
 from uuid import UUID, uuid4
 from warnings import warn
@@ -20,8 +21,7 @@ from useq._channel import Channel
 from useq._enums import AXES, Axis
 from useq._focus_surface import FocusSurface  # noqa: TC001
 from useq._grid import MultiPointPlan  # noqa: TC001
-from useq._hardware_autofocus import AutoFocusPlan
-from useq._iter_sequence import iter_sequence
+from useq._iter_sequence import _iter_axis, _used_axes, iter_sequence
 from useq._plate import WellPlatePlan
 from useq._position import Position, PositionBase, RelativePosition
 from useq._time import AnyTimePlan  # noqa: TC001
@@ -32,6 +32,17 @@ if TYPE_CHECKING:
     from typing import Self
 
     from useq._mda_event import MDAEvent
+
+
+class EventPlans(NamedTuple):
+    """The plans in effect at one event index (see `MDASequence.plans_at`)."""
+
+    autofocus_plan: AnyAutofocusPlan | None
+    z_plan: AnyZPlan | None
+    channel: Channel | None
+    # how far the event is from its position's Z: the value of a relative Z plan
+    # plus the channel's Z offset
+    z_shift: float
 
 
 class MDASequence(UseqModel):
@@ -506,21 +517,6 @@ class MDASequence(UseqModel):
                 "Currently, a Position sequence cannot have multiple stage positions."
             )
 
-        # A locked hardware autofocus holds Z: nothing else can move it
-        subs = [p.sequence for p in stage_positions if p.sequence is not None]
-        plans = (autofocus_plan, *(s.autofocus_plan for s in subs))
-        if any(isinstance(af, AutoFocusPlan) and af.keep_locked for af in plans):
-            z_plans = (z_plan, *(s.z_plan for s in subs))
-            z_stack = Axis.Z in order and any(
-                z is not None and z.num_positions() > 1 for z in z_plans
-            )
-            all_channels = (*channels, *(c for s in subs for c in s.channels))
-            if z_stack or any(c.z_offset for c in all_channels):
-                raise ValueError(
-                    "A hardware autofocus that keeps the lock holds Z, so it cannot "
-                    "be used with a Z stack or channel Z offsets."
-                )
-
         # Cannot use autofocus plan with absolute z_plan
         if Axis.Z in order and z_plan and not z_plan.is_relative:
             err = "Absolute Z positions cannot be used with autofocus plan."
@@ -563,6 +559,33 @@ class MDASequence(UseqModel):
         }[str(axis).lower()]
         if plan:
             yield from plan
+
+    def plans_at(self, index: Mapping[str, int]) -> EventPlans:
+        """Return the plans the event at `index` of this sequence was built from.
+
+        A position's sub-sequence overrides only the plans it defines, as in
+        iteration: the autofocus plan, Z plan and channel may each come from the
+        position or from this sequence.
+        """
+
+        def at(seq: MDASequence, axis: str) -> Any:
+            values = _iter_axis(seq, axis)
+            i = index.get(axis)
+            return values[i] if i is not None and i < len(values) else None
+
+        position = at(self, Axis.POSITION)
+        child = position.sequence if isinstance(position, Position) else None
+
+        def owner(axis: str) -> MDASequence:
+            return child if child is not None and axis in _used_axes(child) else self
+
+        z_owner = owner(Axis.Z)
+        channel = at(owner(Axis.CHANNEL), Axis.CHANNEL)
+        z_shift = channel.z_offset if channel is not None else 0.0
+        if z_owner.z_plan is not None and z_owner.z_plan.is_relative:
+            z_shift += at(z_owner, Axis.Z) or 0.0
+        autofocus = (child and child.autofocus_plan) or self.autofocus_plan
+        return EventPlans(autofocus, z_owner.z_plan, channel, z_shift)
 
     def __iter__(self) -> Iterator[MDAEvent]:  # type: ignore [override]
         """Same as `iter_events`. Supports `for event in sequence: ...` syntax."""

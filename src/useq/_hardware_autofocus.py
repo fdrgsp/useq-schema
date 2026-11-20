@@ -4,7 +4,6 @@ from pydantic import Field
 
 from useq._actions import HardwareAutofocus
 from useq._autofocus_base import _AutofocusPlanBase, _AxesTrigger
-from useq._mda_event import MDAEvent
 
 
 class AutoFocusPlan(_AutofocusPlanBase):
@@ -31,11 +30,11 @@ class AutoFocusPlan(_AutofocusPlanBase):
     search_step_um : float
         Step size in µm used while searching.  By default, `5.0`.
     keep_locked : bool
-        Keep continuous focus locked for the whole acquisition.  Autofocus then
-        *finds* focus only when this plan triggers; at the first event and at every
-        other position change it only *holds* focus: it moves to that position's
-        offset and waits for the lock.  A locked autofocus holds Z, so this cannot
-        be combined with Z stacks or channel Z offsets.  By default, `False`.
+        Keep continuous focus (e.g. a Nikon PFS) on between the full autofocus
+        searches this plan schedules, switching it on if it is off.  Engines should
+        suspend it only for Z stacks and channel Z offsets that the focus drive
+        cannot make while it is on.  With `axes=()`, focus is kept without any
+        scheduled search.  By default, `False`.
     """
 
     autofocus_device_name: str | None = None
@@ -57,11 +56,6 @@ class AutoFocusPlan(_AutofocusPlanBase):
             search_step_um=self.search_step_um,
             keep_locked=self.keep_locked,
         )
-
-    def hold_event(self, event: MDAEvent) -> MDAEvent:
-        """Return the event that only holds focus (no full autofocus) before `event`."""
-        action = self.as_action().model_copy(update={"find_focus": False})
-        return self.autofocus_event(event).model_copy(update={"action": action})
 
 
 class AxesBasedAF(_AxesTrigger, AutoFocusPlan):

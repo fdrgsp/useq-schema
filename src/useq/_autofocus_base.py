@@ -44,9 +44,9 @@ class _AutofocusPlanBase(FrozenModel):
         """
         updates: dict[str, Any] = {"action": self.as_action()}
         if event.z_pos is not None and event.sequence is not None:
-            zplan = event.sequence.z_plan
-            if zplan and zplan.is_relative and "z" in event.index:
-                updates["z_pos"] = event.z_pos - list(zplan)[event.index["z"]]
+            # the position's own Z: no relative Z plan value, no channel Z offset
+            z_shift = event.sequence.plans_at(event.index).z_shift
+            updates["z_pos"] = event.z_pos - z_shift
 
         return event.model_copy(update=updates)
 
