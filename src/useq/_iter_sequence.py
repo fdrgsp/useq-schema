@@ -22,9 +22,8 @@ if TYPE_CHECKING:
     from useq._position import PositionBase
 
 
-@cache
 def _iter_axis(seq: MDASequence, ax: str) -> tuple[Channel | float | PositionBase, ...]:
-    return tuple(seq.iter_axis(ax))
+    return seq._axis_items(ax)  # noqa: SLF001
 
 
 @dataclass(frozen=True)
@@ -43,10 +42,17 @@ class _AxisPlan:
 _AxisSelection = dict[str, tuple[int, Any, _AxisPlan]]
 
 
-@cache
 def _used_axes(seq: MDASequence) -> str:
-    # an axis is used if it has a first item (found without creating all of them)
-    return "".join(k for k in seq.axis_order if any(True for _ in seq.iter_axis(k)))
+    # an axis is used if it has any items (timepoints are not stored: see `_product`)
+    return "".join(
+        k
+        for k in seq.axis_order
+        if (
+            any(True for _ in seq.iter_axis(k))
+            if k == Axis.TIME
+            else _iter_axis(seq, k)
+        )
+    )
 
 
 def _product(axes: tuple[_AxisPlan, ...]) -> Iterator[tuple[tuple[int, Any], ...]]:

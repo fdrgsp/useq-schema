@@ -261,6 +261,7 @@ class MDASequence(UseqModel):
 
     _uid: UUID = PrivateAttr(default_factory=uuid4)
     _sizes: dict[str, int] | None = PrivateAttr(default=None)
+    _axis_cache: dict[str, tuple[Any, ...]] = PrivateAttr(default_factory=dict)
 
     @property
     def uid(self) -> UUID:
@@ -436,8 +437,9 @@ class MDASequence(UseqModel):
     ) -> Self:
         """Return a copy of the sequence, see `pydantic.BaseModel.model_copy`."""
         copied = super().model_copy(update=update, deep=deep)
-        if update:
-            copied._sizes = None  # noqa: SLF001  # the fields may have changed
+        if update:  # the fields may have changed
+            copied._sizes = None  # noqa: SLF001
+            copied._axis_cache = {}  # noqa: SLF001
         return copied
 
     def __eq__(self, other: Any) -> bool:
@@ -591,6 +593,12 @@ class MDASequence(UseqModel):
             z_shift += at(z_owner, Axis.Z) or 0.0
         autofocus = (child and child.autofocus_plan) or self.autofocus_plan
         return EventPlans(autofocus, z_owner.z_plan, channel, z_shift)
+
+    def _axis_items(self, axis: str) -> tuple[Any, ...]:
+        """Return the items of `axis`, creating them only once."""
+        if (items := self._axis_cache.get(axis)) is None:
+            items = self._axis_cache[axis] = tuple(self.iter_axis(axis))
+        return items
 
     def __iter__(self) -> Iterator[MDAEvent]:  # type: ignore [override]
         """Same as `iter_events`. Supports `for event in sequence: ...` syntax."""
