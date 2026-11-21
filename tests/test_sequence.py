@@ -1,6 +1,6 @@
 import itertools
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 import numpy as np
@@ -17,7 +17,7 @@ from useq import (
     ZRangeAround,
 )
 from useq._actions import AcquireImage, CustomAction, HardwareAutofocus
-from useq._mda_event import SLMImage
+from useq._mda_event import ReadOnlyDict, SLMImage
 
 _T = list[tuple[Any, Sequence[float]]]
 
@@ -287,6 +287,26 @@ def test_shape_and_axes() -> None:
         mda.replace(axis_order=tuple("zptasdfs"))
 
 
+def test_sizes_after_model_copy() -> None:
+    seq = MDASequence(time_plan={"interval": 1, "loops": 3})
+    assert seq.sizes["t"] == 3
+    copied = seq.model_copy(
+        update={"time_plan": TIntervalDuration(interval=1, duration=6)}
+    )
+    assert copied.sizes["t"] == 7
+    assert seq.sizes["t"] == 3
+
+
+def test_sizes_with_custom_iter_axis() -> None:
+    class EveryOtherTimepoint(MDASequence):
+        def iter_axis(self, axis: str) -> Iterator[Any]:
+            items = super().iter_axis(axis)
+            yield from (list(items)[::2] if axis == "t" else items)
+
+    seq = EveryOtherTimepoint(time_plan={"interval": 1, "loops": 5})
+    assert seq.sizes["t"] == 3 == len(list(seq))
+
+
 def test_hashable(mda1: MDASequence) -> None:
     assert hash(mda1)
     assert mda1 == mda1
@@ -498,6 +518,9 @@ def test_mda_sequence_setup_serialization() -> None:
     roundtripped2 = MDASequence.model_validate_json(j)
     assert roundtripped2.setup is not None
 
+    roundtripped3 = MDASequence(**seq.model_dump(exclude_unset=True))
+    assert roundtripped3.setup == seq.setup
+
 
 def test_mda_sequence_no_setup() -> None:
     seq = MDASequence(time_plan={"interval": 1, "loops": 2})
@@ -506,3 +529,12 @@ def test_mda_sequence_no_setup() -> None:
     # no setup event should be prepended
     for ev in events:
         assert not isinstance(ev.action, CustomAction)
+
+
+def test_read_only_dict() -> None:
+    assert ReadOnlyDict() == ReadOnlyDict(None) == {}
+    assert ReadOnlyDict({"t": 1}, c=2) == ReadOnlyDict([("t", 1), ("c", 2)])
+    index = ReadOnlyDict(ReadOnlyDict({"t": 1}))
+    assert dict(index) == {"t": 1}
+    with pytest.raises(TypeError, match="Read-only"):
+        index["t"] = 2

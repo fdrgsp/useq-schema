@@ -276,18 +276,7 @@ class MDASequence(UseqModel):
 
     @field_validator("setup", mode="after")
     def _validate_setup(cls, v: MDAEvent | None) -> MDAEvent | None:
-        if v is None:
-            return v
-        if isinstance(v.action, AcquireImage):
-            if "action" in v.model_fields_set:
-                raise ValueError(
-                    "Setup event action cannot be 'AcquireImage'. "
-                    "Omit the action field to automatically use "
-                    "CustomAction(name='setup'), or use a different "
-                    "action type."
-                )
-            v = v.model_copy(update={"action": CustomAction(name="setup")})
-        return v
+        return _validate_setup_event(v)
 
     @field_validator("keep_shutter_open_across", mode="before")
     def _validate_keep_shutter_open_across(cls, v: tuple[str, ...]) -> tuple[str, ...]:
@@ -442,6 +431,15 @@ class MDASequence(UseqModel):
 
         return self
 
+    def model_copy(
+        self, *, update: Mapping[str, Any] | None = None, deep: bool = False
+    ) -> Self:
+        """Return a copy of the sequence, see `pydantic.BaseModel.model_copy`."""
+        copied = super().model_copy(update=update, deep=deep)
+        if update:
+            copied._sizes = None  # noqa: SLF001  # the fields may have changed
+        return copied
+
     def __eq__(self, other: Any) -> bool:
         """Return `True` if two `MDASequences` are equal (uid is excluded)."""
         if isinstance(other, MDASequence):
@@ -540,8 +538,15 @@ class MDASequence(UseqModel):
     def sizes(self) -> Mapping[str, int]:
         """Mapping of axis name to size of that axis."""
         if self._sizes is None:
-            self._sizes = {k: len(list(self.iter_axis(k))) for k in self.axis_order}
+            self._sizes = {k: self._axis_size(k) for k in self.axis_order}
         return self._sizes
+
+    def _axis_size(self, axis: str) -> int:
+        """Return the number of items on `axis`."""
+        # there may be millions of timepoints: don't create them if we don't have to
+        if axis == Axis.TIME and type(self).iter_axis is MDASequence.iter_axis:
+            return self.time_plan.num_timepoints() if self.time_plan else 0
+        return len(list(self.iter_axis(axis)))
 
     @property
     def used_axes(self) -> str:
@@ -625,3 +630,20 @@ class MDASequence(UseqModel):
                 takes to acquire the data
         """
         return estimate_sequence_duration(self)
+
+
+def _validate_setup_event(v: MDAEvent | None) -> MDAEvent | None:
+    """Default a setup event's action to `CustomAction(name="setup")`."""
+    if v is None:
+        return v
+    if isinstance(v.action, AcquireImage):
+        if "action" in v.model_fields_set:
+            raise ValueError(
+                "Setup event action cannot be 'AcquireImage'. "
+                "Omit the action field to automatically use "
+                "CustomAction(name='setup'), or use a different "
+                "action type."
+            )
+        # set `type` explicitly so it survives `model_dump(exclude_unset=True)`
+        v = v.model_copy(update={"action": CustomAction(type="custom", name="setup")})
+    return v

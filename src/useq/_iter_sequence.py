@@ -22,35 +22,68 @@ if TYPE_CHECKING:
     from useq._position import PositionBase
 
 
+@cache
+def _iter_axis(seq: MDASequence, ax: str) -> tuple[Channel | float | PositionBase, ...]:
+    return tuple(seq.iter_axis(ax))
+
+
 @dataclass(frozen=True)
 class _AxisPlan:
-    """An axis iterator together with the sequence that owns its plan."""
+    """An axis together with the sequence that owns its plan."""
 
     key: str
-    values: tuple[Channel | float | PositionBase, ...]
     sequence: MDASequence
+
+    @property
+    def values(self) -> tuple[Channel | float | PositionBase, ...]:
+        """Every item on this axis (don't use for the time axis: see `_product`)."""
+        return _iter_axis(self.sequence, self.key)
 
 
 _AxisSelection = dict[str, tuple[int, Any, _AxisPlan]]
 
 
 @cache
-def _iter_axis(seq: MDASequence, ax: str) -> tuple[Channel | float | PositionBase, ...]:
-    return tuple(seq.iter_axis(ax))
-
-
-@cache
-def _sizes(seq: MDASequence) -> dict[str, int]:
-    return {k: len(_iter_axis(seq, k)) for k in seq.axis_order}
-
-
-@cache
 def _used_axes(seq: MDASequence) -> str:
-    return "".join(k for k in seq.axis_order if _sizes(seq)[k])
+    # an axis is used if it has a first item (found without creating all of them)
+    return "".join(k for k in seq.axis_order if any(True for _ in seq.iter_axis(k)))
+
+
+def _product(axes: tuple[_AxisPlan, ...]) -> Iterator[tuple[tuple[int, Any], ...]]:
+    """Like `itertools.product` over the (index, item)s of each of `axes`.
+
+    But the time axis is never held in memory (it may be millions of timepoints
+    long): it is recreated each time the axes outside of it advance.
+    """
+    t_idx = next((i for i, ax in enumerate(axes) if ax.key == Axis.TIME), None)
+    if t_idx is None:
+        yield from product(*(tuple(enumerate(ax.values)) for ax in axes))
+        return
+    outer = [tuple(enumerate(ax.values)) for ax in axes[:t_idx]]
+    inner = [tuple(enumerate(ax.values)) for ax in axes[t_idx + 1 :]]
+    time_seq = axes[t_idx].sequence
+    for head in product(*outer):
+        for timepoint in enumerate(time_seq.iter_axis(Axis.TIME)):
+            for tail in product(*inner):
+                yield (*head, timepoint, *tail)
+
+
+# An event with every field at its default value.  Copying it is much faster than
+# `MDAEvent.model_construct`, which looks up the default of each missing field
+# (and pydantic inspects the signature of every default factory, on every call).
+_DEFAULT_EVENT = MDAEvent.model_construct()
+
+
+def _new_event(kwargs: Mapping[str, Any]) -> MDAEvent:
+    """Same as `MDAEvent.model_construct(**kwargs)`, but faster."""
+    event = _DEFAULT_EVENT.model_copy(update=kwargs)
+    if "metadata" not in kwargs:
+        event.__dict__["metadata"] = {}  # model_copy is shallow: don't share it
+    return event
 
 
 def _axis_plans(seq: MDASequence) -> tuple[_AxisPlan, ...]:
-    return tuple(_AxisPlan(ax, _iter_axis(seq, ax), seq) for ax in _used_axes(seq))
+    return tuple(_AxisPlan(ax, seq) for ax in _used_axes(seq))
 
 
 def _sort_axis_plans(
@@ -69,7 +102,7 @@ def _iter_plan_product(
 ) -> Iterator[tuple[_AxisSelection, MDASequence]]:
     """Iterate one position branch's effective axis plans."""
     prefix = {} if prefix is None else prefix
-    for combination in product(*(enumerate(axis.values) for axis in axes)):
+    for combination in _product(axes):
         selection = {
             axis.key: (idx, value, axis)
             for axis, (idx, value) in zip(axes, combination, strict=True)
@@ -262,7 +295,7 @@ def _iter_sequence(sequence: MDASequence) -> Iterator[MDAEvent]:
         if index.get(Axis.TIME) == 0 and last_t_idx != 0:
             event_kwargs["reset_event_timer"] = True
 
-        event = MDAEvent.model_construct(**event_kwargs)
+        event = _new_event(event_kwargs)
         autofocus_plan = active_sequence.autofocus_plan or sequence.autofocus_plan
         if autofocus_plan:
             if isinstance(autofocus_plan, _AxesTrigger):
